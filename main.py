@@ -7,8 +7,8 @@ def main():
     device: torch.device = get_default_device()
     print(f"Using device: {device}")
 
-    game = BaseGame(10, 10)
-    game.play(steps=1)
+    game = BaseGame(1, 4, 4)
+    game.play(1)
 
 
 if __name__ == "__main__":
