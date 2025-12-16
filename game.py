@@ -4,16 +4,18 @@ import matplotlib.pyplot as plt
 
 
 class BaseGame:
-    def __init__(self, game_instances=1, agents=100, objects=100) -> None:
+    def __init__(
+        self, game_instances=1, agents=100, objects=100, memory=5, vocab_size=10**6
+    ) -> None:
 
         self.game_instances = game_instances
         self.agents = agents
         self.objects = objects
-        self.batch_size = torch.arange(game_instances)
+        self.memory = memory
+        self.vocab_size = vocab_size
 
-        self.state = torch.zeros(
-            (game_instances, agents, objects, agents), dtype=torch.float32
-        )
+        # n_agents, n_objects, memory that holds: (word_id, count)
+        self.state = torch.zeros((agents, objects, memory, 2), dtype=torch.long)
 
     def choose_agents(self):
         perms = torch.randperm(self.agents)
@@ -60,73 +62,66 @@ class BaseGame:
         chosen = torch.multinomial(probs, num_samples=1, replacement=True).squeeze(1)
         return chosen
 
-    def get_words_from_speakers(
-        self, context: torch.Tensor, speakers: torch.Tensor
-    ) -> torch.Tensor:
-        objects_from_context = self.choose_object_from_context(context)
+    def gen_words(self, n) -> torch.Tensor:
+        return torch.randint(0, self.vocab_size, (n,), device=self.state.device)
 
-        has_word_for_object = self.state[0, speakers, objects_from_context].sum(1) > 0
+    def get_words_from_speakers(self, speakers, contexts) -> torch.Tensor:
 
-        if (~has_word_for_object).any():
-            self.state[
-                0,
-                speakers[~has_word_for_object],
-                objects_from_context[~has_word_for_object],
-                speakers[~has_word_for_object],
-            ] = 1.0
+        objects_from_context = self.choose_object_from_context(contexts)
 
-        words = torch.argmax(self.state[0, speakers, objects_from_context], dim=1)
+        has_name_for_object = (
+            self.state[speakers, objects_from_context, :, 1].sum(-1) > 0
+        )
 
-        return words
-
-    def set_words_for_listeners(
-        self, context: torch.Tensor, listeners: torch.Tensor, words: torch.Tensor
-    ) -> None:
-
-        obj_from_context = context > 0
-        is_object_named = self.state[0, listeners].sum(1) > 0
-
-        named_obj_from_context = obj_from_context & is_object_named
-
-        print(named_obj_from_context)
-
-        objs = self.state[0, listeners]
-
-        print(objs)
-
-        word_object_map = self.state.transpose(-1, -2)
-        has_object_for_word = word_object_map[0, listeners, words].sum(1) > 0
-
-        if (~has_object_for_word).any():
-            objects_from_context = self.choose_object_from_context(context)
+        if (~has_name_for_object).any():
+            words = self.gen_words((~has_name_for_object).sum().item())
 
             self.state[
+                speakers[~has_name_for_object],
+                objects_from_context[~has_name_for_object],
                 0,
-                listeners[~has_object_for_word],
-                objects_from_context[~has_object_for_word],
-                words[~has_object_for_word],
-            ] = 1.0
+            ] = torch.stack(
+                [words, torch.ones_like(words)],
+                dim=-1,
+            ).long()
 
-        # context shape: (n_listeners, objects)
-        # true means object is in context for that listener
-        # we want to know which object in listeners vocab is named
+        memory_idx = self.state[speakers, objects_from_context, :, 1].argmax(-1)
 
-    def word_stability(self) -> float:
+        return self.state[speakers, objects_from_context, memory_idx, 0]
 
-        xd = torch.argmax(self.state, dim=2)
+    def set_words_in_listeners(self, listeners, contexts, words) -> None:
 
-    def step(self):
-        # losuj agentow
-        speakers, listeners = self.choose_agents()
-        # generuj kontekst
-        context = self.generate_context()
+        # n_listeners, n_objects, memory
+        objects_from_context = self.choose_object_from_context(contexts)
+        word_object_map = self.state[listeners, :, :, 0].transpose(-1, -2)
+        has_named_object = word_object_map.sum(dim=(1, 2)) > 0
 
-        words = self.get_words_from_speakers(context, speakers)
+        context_mask = contexts > 0
 
-        self.set_words_for_listeners(context, listeners, words)
+        named_object_in_context = (word_object_map.sum(dim=1) > 0) * context_mask
 
-        self.word_stability()
+        print(named_object_in_context)
+        # print(named_object_in_context)
 
-    def play(self, steps=100):
-        for _ in tqdm.tqdm(range(steps)):
-            self.step()
+        if (~has_named_object).any():
+            self.state[
+                listeners[~has_named_object],
+                objects_from_context[~has_named_object],
+                0,
+            ] = torch.stack(
+                [words[~has_named_object], torch.ones_like(words[~has_named_object])],
+                dim=-1,
+            ).long()
+
+    def prune_if_sucessful(self):
+        pass
+
+    def play(self, rounds: int = 1) -> None:
+        for _ in tqdm.tqdm(range(rounds), desc="Playing rounds"):
+            speakers, listeners = self.choose_agents()
+
+            contexts = self.generate_context()
+
+            words = self.get_words_from_speakers(speakers, contexts)
+
+            self.set_words_in_listeners(listeners, contexts, words)
