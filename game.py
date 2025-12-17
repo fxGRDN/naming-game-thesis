@@ -24,6 +24,7 @@ class BaseGame:
         self.unique_words_count = 0
         self.device = device
         self.successful_communications = 0
+        self.fig_prefix = "base_game"
 
         # n_agents, n_objects, memory that holds: (word_id, count)
         self.state = torch.zeros(
@@ -312,4 +313,4 @@ class BaseGame:
         plt.title("Unique Words")
         plt.xlabel("Rounds")
 
-        plt.savefig("game_stats.png")
+        plt.savefig(f"{self.fig_prefix}_stats.png")
