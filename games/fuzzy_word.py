@@ -1,5 +1,5 @@
 import torch
-from game import BaseGame
+from .base_game import BaseGame
 
 
 class FuzzyWordGame(BaseGame):
@@ -54,7 +54,7 @@ class FuzzyWordGame(BaseGame):
             n_words = (~has_name_for_object).sum().item()
             words = self.gen_words(n_words)
 
-            self.unique_words_count += n_words
+            self.unique_words.update(words.tolist())
 
             self.state[
                 speakers[~has_name_for_object],
@@ -72,8 +72,12 @@ class FuzzyWordGame(BaseGame):
         # Apply random bit flip with probability flip_prob
         if self.flip_prob > 0.0:
             flip_mask = torch.rand(words.shape[0], device=self.device) < self.flip_prob
+
             if flip_mask.any():
                 flipped = self.flip_random_bit(words[flip_mask])
+
+                self.unique_words.update(flipped.tolist())
+
                 words = words.clone()
                 words[flip_mask] = flipped
 

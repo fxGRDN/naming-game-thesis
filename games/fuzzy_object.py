@@ -1,4 +1,4 @@
-from game import BaseGame
+from .base_game import BaseGame
 import torch
 
 

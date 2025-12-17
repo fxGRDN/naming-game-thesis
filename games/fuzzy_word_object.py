@@ -1,5 +1,5 @@
-from fuzzy_object import FuzzyObjectGame
-from fuzzy_word import FuzzyWordGame
+from .fuzzy_object import FuzzyObjectGame
+from .fuzzy_word import FuzzyWordGame
 import torch
 
 

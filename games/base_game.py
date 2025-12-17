@@ -21,7 +21,7 @@ class BaseGame:
         self.memory = memory
         self.vocab_size = vocab_size
         self.prune_step = prune_step
-        self.unique_words_count = 0
+        self.unique_words = set()
         self.device = device
         self.successful_communications = 0
         self.fig_prefix = "base_game"
@@ -90,7 +90,7 @@ class BaseGame:
             n_words = (~has_name_for_object).sum().item()
             words = self.gen_words(n_words)
 
-            self.unique_words_count += n_words
+            self.unique_words.update(words.tolist())
 
             self.state[
                 speakers[~has_name_for_object],
@@ -251,7 +251,7 @@ class BaseGame:
         Returns (objects,) tensor with count of unique dominant words per object.
         Convergence -> all values = 1.
         """
-        return torch.tensor(self.unique_words_count)
+        return torch.tensor(len(self.unique_words), device=self.device)
 
     def success_rate(self) -> torch.Tensor:
         n_communications = self.agents // 2
@@ -313,4 +313,4 @@ class BaseGame:
         plt.title("Unique Words")
         plt.xlabel("Rounds")
 
-        plt.savefig(f"{self.fig_prefix}_stats.png")
+        plt.savefig(f"plots/{self.fig_prefix}_stats.png")
