@@ -6,6 +6,7 @@ from games.fuzzy_word import FuzzyWordGame
 from games.fuzzy_word_object import FuzzyObjectWordGame
 import numpy as np
 from tqdm import tqdm
+import traceback
 
 
 def test_games():
@@ -66,24 +67,31 @@ def monte_carlo_simulation():
     sims = tqdm(range(num_simulations), position=2)
 
     results = np.zeros((len(q_linspace), len(p_linspace), num_simulations))
-    for i, q in enumerate(q_linspace):
-        for j, p in enumerate(p_linspace):
-            for k in sims:
-                device: torch.device = get_default_device()
-                game = FuzzyObjectWordGame(
-                    game_instances=1,
-                    agents=50,
-                    objects=50,
-                    memory=5,
-                    vocab_size=2**10,
-                    confusion_prob=p,
-                    flip_prob=q,
-                    device=device,
-                )
-                game.play(1000)
-                results[i, j, k] = game.stats[0, -1]
+    try:
+        for i, q in enumerate(q_linspace):
+            for j, p in enumerate(p_linspace):
+                for k in sims:
+                    device: torch.device = get_default_device()
+                    game = FuzzyObjectWordGame(
+                        game_instances=1,
+                        agents=50,
+                        objects=50,
+                        memory=5,
+                        vocab_size=2**10,
+                        confusion_prob=p,
+                        flip_prob=q,
+                        device=device,
+                    )
+                    game.play(1000)
+                    results[i, j, k] = game.stats[0, -1]
 
-    np.save("monte_carlo_results.npy", results)
+        np.save("monte_carlo_results.npy", results)
+    except Exception as e:
+        with open("error_log.txt", "w") as f:
+            f.write(f"An error occurred: {e}\n\n")
+            f.write("Traceback:\n")
+            f.write(traceback.format_exc())
+        print(f"An error occurred: {e} (see error_log.txt for details)")
 
 
 if __name__ == "__main__":
