@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 class BaseGame:
     def __init__(
         self,
-        game_instances=1,
         agents=100,
         objects=100,
         memory=5,
@@ -15,7 +14,6 @@ class BaseGame:
         device=torch.device("cpu"),
     ) -> None:
 
-        self.game_instances = game_instances
         self.agents = agents
         self.objects = objects
         self.memory = memory
@@ -40,16 +38,20 @@ class BaseGame:
         o = self.objects
         max_k = max_size
 
+        # how many objects in context per speaker
         ks = torch.randint(1, max_k + 1, (n,), device=self.device)
 
         probs = torch.ones((n, o), device=self.device, dtype=torch.float32)
 
+        # sample all objects with equal probability
         samples = torch.multinomial(probs, num_samples=max_k, replacement=False)
 
         idxs = torch.arange(max_k, device=self.device).unsqueeze(0)
+
         keep_mask = idxs < ks.unsqueeze(1)
 
         rows_flat = samples[keep_mask]
+
         cols = torch.arange(n, device=self.device).unsqueeze(1).expand(-1, max_k)
         cols_flat = cols[keep_mask]
 
@@ -58,6 +60,7 @@ class BaseGame:
         context[rows_flat, cols_flat] = 1.0 / ks[cols_flat].to(torch.float32)
 
         # return context of shape (n_speakers, objects)
+
         return context.t()
 
     def choose_object_from_context(self, context: torch.Tensor) -> torch.Tensor:
@@ -68,10 +71,6 @@ class BaseGame:
         # context: (objects, n_speakers) -> probs: (n_speakers, objects)
         probs = context.contiguous()
         # if any row sums to zero, replace that row with uniform weights
-        row_sums = probs.sum(dim=1, keepdim=True)
-        if (row_sums == 0).any():
-            probs = torch.where(row_sums == 0, torch.ones_like(probs), probs)
-        # sample one object per speaker
         chosen = torch.multinomial(probs, num_samples=1, replacement=True).squeeze(1)
         return chosen
 
@@ -194,57 +193,13 @@ class BaseGame:
         # Zero out non-best slots
         self.state = self.state * keep_mask.unsqueeze(-1)
 
-    def get_dominant_words(self) -> torch.Tensor:
-        """
-        Get the dominant word per (agent, object) based on highest count.
-        Returns: (agents, objects) tensor of word ids
-        """
-        best_memory_idx = self.state[:, :, :, 1].argmax(dim=-1)  # (agents, objects)
-        dominant_words = (
-            self.state[:, :, :, 0]
-            .gather(dim=2, index=best_memory_idx.unsqueeze(-1))
-            .squeeze(-1)
-        )  # (agents, objects)
-        return dominant_words
+    def vocab_stability(self) -> torch.Tensor:
 
-    def vocab_stability(self) -> float:
-        """
-        Calculate vocabulary stability as the fraction of (agent, object) pairs
-        where the dominant word matches the global dominant word for that object.
-        """
-        dominant_words = self.get_dominant_words()  # (agents, objects)
+        max_count = self.state[:, :, :, 1].max(-1).values
+        sum_counts = self.state[:, :, :, 1].sum(-1)
+        
+        return (max_count / sum_counts).mean()
 
-        # For each object, find the mode (most common word) across agents
-        # One-hot encode words, sum across agents, argmax to get mode
-        max_word = dominant_words.max().item() + 1
-        if max_word <= 1:
-            return 0.0
-
-        # (agents, objects) -> one-hot (agents, objects, max_word)
-        one_hot = torch.zeros(
-            size=(self.agents, self.objects, int(max_word)),
-            device=self.device,
-            dtype=torch.long,
-        )
-        one_hot.scatter_(2, dominant_words.unsqueeze(-1), 1)
-
-        # Zero out the "no word" (0) counts
-        one_hot[:, :, 0] = 0
-
-        # Sum across agents -> (objects, max_word)
-        word_counts = one_hot.sum(dim=0)
-
-        # Mode per object -> (objects,)
-        mode_words = word_counts.argmax(dim=-1)
-
-        # Check agreement: dominant_words == mode_words (broadcast)
-        valid_mask = dominant_words > 0  # (agents, objects)
-        agreement = (dominant_words == mode_words.unsqueeze(0)) & valid_mask
-
-        if valid_mask.sum() == 0:
-            return 0.0
-
-        return agreement.sum().float().item() / valid_mask.sum().float().item()
 
     def unique_words_per_object(self) -> torch.Tensor:
         """
@@ -261,6 +216,30 @@ class BaseGame:
         return torch.tensor(
             self.successful_communications / n_communications, device=self.device
         )
+    
+
+    def coherence(self) -> torch.Tensor:
+        tensor_agents = torch.tensor(self.agents, device=self.device)
+        top_word_index = self.state[:, :, :, 1].argmax(dim=-1)  # (agents, objects)
+        top_words = self.state[
+            torch.arange(self.agents, device=self.device).unsqueeze(1),
+            torch.arange(self.objects, device=self.device).unsqueeze(0),
+            top_word_index,
+            0,
+        ].t()  # (objects, agents)
+
+        sorted_words, _ = torch.sort(top_words, dim=1) 
+
+        count_zero = (sorted_words == 0).sum(dim=1, keepdim=True)  # (objects, 1)
+
+        diff = torch.diff(sorted_words, dim=1)  # (agents-1, objects)
+        count_diffs = (diff != 0).sum(dim=1)  # (agents-1,)
+
+        return ((tensor_agents - count_diffs - count_zero)/ tensor_agents).mean()
+    
+    def entropy_among_objects(self) -> torch.Tensor:
+        pass
+
 
     def step(self) -> None:
         speakers, hearers = self.choose_agents()
@@ -275,20 +254,21 @@ class BaseGame:
 
         self.stats = torch.zeros((3, rounds), dtype=torch.float32)
 
-        progress = tqdm.tqdm(range(rounds), desc="Playing rounds")
-        for i in progress:
+        # progress = tqdm.tqdm(, desc="Playing rounds", position=3)
+        for i in range(rounds):
             self.step()
 
             self.stats[0, i] = self.success_rate()
-            self.stats[1, i] = self.vocab_stability()
+            self.stats[1, i] = self.coherence()
             self.stats[2, i] = self.unique_words_per_object().float()
+              # --- IGNORE ---
 
-            progress.set_postfix(
-                {
-                    "Vocab Stability": f"{self.stats[1, i].item():.3f}",
-                    "memory_usage": f"{torch.cuda.memory_stats(device=self.device)['allocated_bytes.all.current']/8192} MB",
-                }
-            )
+            # progress.set_postfix(
+            #     {
+            #         "Vocab Stability": f"{self.stats[1, i].item():.3f}",
+            #         "memory_usage": f"{torch.cuda.memory_stats(device=self.device)['allocated_bytes.all.current']/8192} MB",
+            #     }
+            # )
 
     def plot_stats(self) -> None:
         rounds = self.stats.size(1)
