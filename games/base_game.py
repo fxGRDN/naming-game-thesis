@@ -284,7 +284,7 @@ class BaseGame:
 
         plt.subplot(1, 3, 2)
         plt.plot(x, self.stats[1].cpu().numpy())
-        plt.title("Vocabulary Stability")
+        plt.title("Coherence")
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 

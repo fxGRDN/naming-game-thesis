@@ -13,8 +13,8 @@ def test_games():
     device: torch.device = get_default_device()
     print(f"Using device: {device}")
 
-    game = BaseGame(16, 16, memory=10, device=device, vocab_size=2**8)
-    game.play(1)
+    game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8)
+    game.play(2000)
     game.plot_stats()
 
     # fuzzy_object_game = FuzzyObjectGame(
@@ -97,23 +97,17 @@ def test_base_game():
     device: torch.device = get_default_device()
     iters = 1000
     game_steps = 1000
-    memory_size_iters = 10
-    stats = np.zeros((memory_size_iters, iters, game_steps))
+    stats = np.zeros((iters, 3, game_steps))
 
-    for memory_size in range(10, 110, memory_size_iters):
-        print(f"Memory Size Iteration: {memory_size}/{100}")
-        for i in tqdm(range(iters), desc="Monte Carlo Simulations"):
-            game = BaseGame(50, 50, memory=memory_size, device=device, vocab_size=2**8)
-            game.play(game_steps)
+    for i in tqdm(range(iters), desc="Monte Carlo Simulations"):
+        game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8)
+        game.play(game_steps)
 
-            stats[memory_size // memory_size_iters - 1, i, :] = game.stats[0, :].cpu().numpy()
-
-
-
+        stats[i] = game.stats.cpu().numpy()
     np.save("base_game_monte_carlo_stats.npy", stats)
 
 
 if __name__ == "__main__":
-    test_games()
+    # test_games()
     # monte_carlo_simulation()
-    # test_base_game()
+    test_base_game()
