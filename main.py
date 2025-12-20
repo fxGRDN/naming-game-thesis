@@ -13,8 +13,8 @@ def test_games():
     device: torch.device = get_default_device()
     print(f"Using device: {device}")
 
-    game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8)
-    game.play(2000)
+    game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8, max_agent_pairs=1)
+    game.play(10000)
     game.plot_stats()
 
     # fuzzy_object_game = FuzzyObjectGame(
@@ -96,18 +96,36 @@ def test_games():
 def test_base_game():
     device: torch.device = get_default_device()
     iters = 1000
+    game_steps = 10000
+    stats = np.zeros((iters, 4, game_steps))
+
+    for i in tqdm(range(iters), desc="Monte Carlo Simulations"):
+        game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8, max_agent_pairs=1)
+        game.play(game_steps)
+
+        stats[i] = game.stats.cpu().numpy()
+    np.save("data/base_game_monte_carlo_stats_one_pair.npy", stats)
+
     game_steps = 1000
-    stats = np.zeros((iters, 3, game_steps))
+    
+    stats = np.zeros((iters, 4, game_steps))
 
     for i in tqdm(range(iters), desc="Monte Carlo Simulations"):
         game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8)
         game.play(game_steps)
 
         stats[i] = game.stats.cpu().numpy()
-    np.save("base_game_monte_carlo_stats.npy", stats)
+    np.save("data/base_game_monte_carlo_stats_all_pairs.npy", stats)
 
 
 if __name__ == "__main__":
+    try:
     # test_games()
     # monte_carlo_simulation()
-    test_base_game()
+        test_base_game()
+    except Exception as e:
+        with open("error_log.txt", "w") as f:
+            f.write(f"An error occurred: {e}\n\n")
+            f.write("Traceback:\n")
+            f.write(traceback.format_exc())
+        print(f"An error occurred: {e} (see error_log.txt for details)")

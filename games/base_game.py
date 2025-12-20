@@ -11,6 +11,7 @@ class BaseGame:
         memory=5,
         vocab_size=10**6,
         prune_step=100,
+        max_agent_pairs=None,
         device=torch.device("cpu"),
     ) -> None:
 
@@ -20,6 +21,7 @@ class BaseGame:
         self.vocab_size = vocab_size
         self.prune_step = prune_step
         self.unique_words = set()
+        self.max_agent_pairs = max_agent_pairs
         self.device = device
         self.successful_communications = 0
         self.fig_prefix = "base_game"
@@ -29,12 +31,24 @@ class BaseGame:
             (agents, objects, memory, 2), dtype=torch.long, device=self.device
         )
 
+        self.n_pairs = self.agents // 2
+
+        if self.max_agent_pairs is not None:
+            self.n_pairs = min(self.n_pairs, self.max_agent_pairs)
+
     def choose_agents(self):
         perms = torch.randperm(self.agents)
-        return perms[self.agents // 2 :], perms[: self.agents // 2]
+
+
+            
+
+        hearers = perms[: self.agents // 2][: self.n_pairs]
+        speakers = perms[self.agents // 2 :][: self.n_pairs]
+
+        return speakers, hearers
 
     def generate_context(self, max_size: int = 3) -> torch.Tensor:
-        n = self.agents // 2
+        n = self.n_pairs
         o = self.objects
         max_k = max_size
 
@@ -193,23 +207,11 @@ class BaseGame:
         # Zero out non-best slots
         self.state = self.state * keep_mask.unsqueeze(-1)
 
-    def vocab_stability(self) -> torch.Tensor:
-
-        max_count = self.state[:, :, :, 1].max(-1).values
-        sum_counts = self.state[:, :, :, 1].sum(-1)
-        
-        return (max_count / sum_counts).mean()
-
-
     def unique_words_per_object(self) -> torch.Tensor:
-        """
-        Returns (objects,) tensor with count of unique dominant words per object.
-        Convergence -> all values = 1.
-        """
         return torch.tensor(len(self.unique_words), device=self.device)
 
     def success_rate(self) -> torch.Tensor:
-        n_communications = self.agents // 2
+        n_communications = self.n_pairs
         if n_communications == 0:
             return torch.tensor(0.0, device=self.device)
 
@@ -237,8 +239,23 @@ class BaseGame:
 
         return ((tensor_agents - count_diffs - count_zero)/ tensor_agents).mean()
     
-    def entropy_among_objects(self) -> torch.Tensor:
-        pass
+    def count_polysems(self) -> torch.Tensor:
+        tensor_objects = torch.tensor(self.objects, device=self.device)
+
+        top_word_index = self.state[:, :, :, 1].argmax(dim=-1)  # (agents, objects)
+        top_words = self.state[
+            torch.arange(self.agents, device=self.device).unsqueeze(1),
+            torch.arange(self.objects, device=self.device).unsqueeze(0),
+            top_word_index,
+            0,
+        ].t() 
+
+        top_for_object = top_words.mode(dim=1).values
+
+        return tensor_objects / torch.unique(top_for_object).shape[0]
+
+
+        
 
 
     def step(self) -> None:
@@ -252,7 +269,7 @@ class BaseGame:
 
     def play(self, rounds: int = 1) -> None:
 
-        self.stats = torch.zeros((3, rounds), dtype=torch.float32)
+        self.stats = torch.zeros((4, rounds), dtype=torch.float32)
 
         # progress = tqdm.tqdm(, desc="Playing rounds", position=3)
         for i in range(rounds):
@@ -261,6 +278,7 @@ class BaseGame:
             self.stats[0, i] = self.success_rate()
             self.stats[1, i] = self.coherence()
             self.stats[2, i] = self.unique_words_per_object().float()
+            self.stats[3, i] = self.count_polysems().float()
               # --- IGNORE ---
 
             # progress.set_postfix(
@@ -274,23 +292,29 @@ class BaseGame:
         rounds = self.stats.size(1)
         x = torch.arange(rounds).cpu().numpy()
 
-        plt.figure(figsize=(12, 4))
+        plt.figure(figsize=(12, 12))
 
-        plt.subplot(1, 3, 1)
+        plt.subplot(2, 2, 1)
         plt.plot(x, self.stats[0].cpu().numpy())
         plt.title("Success Rate")
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 
-        plt.subplot(1, 3, 2)
+        plt.subplot(2, 2, 2)
         plt.plot(x, self.stats[1].cpu().numpy())
         plt.title("Coherence")
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 
-        plt.subplot(1, 3, 3)
+        plt.subplot(2, 2, 3)
         plt.plot(x, self.stats[2].cpu().numpy())
         plt.title("Unique Words")
         plt.xlabel("Rounds")
+
+        plt.subplot(2, 2, 4)
+        plt.plot(x, self.stats[3].cpu().numpy())
+        plt.title("Word per Object Ratio")
+        plt.xlabel("Rounds")
+
 
         plt.savefig(f"plots/{self.fig_prefix}_stats.png")
