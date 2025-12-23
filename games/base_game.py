@@ -10,8 +10,9 @@ class BaseGame:
         objects=100,
         memory=5,
         vocab_size=10**6,
-        prune_step=100,
+        prune_step=50,
         max_agent_pairs=None,
+        context_size=(1, 3),
         device=torch.device("cpu"),
     ) -> None:
 
@@ -22,13 +23,14 @@ class BaseGame:
         self.prune_step = prune_step
         self.unique_words = set()
         self.max_agent_pairs = max_agent_pairs
+        self.context_size = context_size
         self.device = device
         self.successful_communications = 0
         self.fig_prefix = "base_game"
 
         # n_agents, n_objects, memory that holds: (word_id, count)
         self.state = torch.zeros(
-            (agents, objects, memory, 2), dtype=torch.long, device=self.device
+            (agents, objects, memory, 2), dtype=torch.float16, device=self.device
         )
 
         self.n_pairs = self.agents // 2
@@ -36,24 +38,26 @@ class BaseGame:
         if self.max_agent_pairs is not None:
             self.n_pairs = min(self.n_pairs, self.max_agent_pairs)
 
+        if self.context_size[1] > self.objects:
+            raise ValueError(
+                f"Max context size {self.context_size[1]} cannot be larger than number of objects {self.objects}"
+            )
+
     def choose_agents(self):
         perms = torch.randperm(self.agents)
-
-
-            
 
         hearers = perms[: self.agents // 2][: self.n_pairs]
         speakers = perms[self.agents // 2 :][: self.n_pairs]
 
         return speakers, hearers
 
-    def generate_context(self, max_size: int = 3) -> torch.Tensor:
+    def generate_context(self) -> torch.Tensor:
         n = self.n_pairs
         o = self.objects
-        max_k = max_size
+        max_k = self.context_size[1]
 
         # how many objects in context per speaker
-        ks = torch.randint(1, max_k + 1, (n,), device=self.device)
+        ks = torch.randint(self.context_size[0], max_k + 1, (n,), device=self.device)
 
         probs = torch.ones((n, o), device=self.device, dtype=torch.float32)
 
@@ -89,7 +93,7 @@ class BaseGame:
         return chosen
 
     def gen_words(self, n) -> torch.Tensor:
-        return torch.randint(1, self.vocab_size, (n,), device=self.device)
+        return torch.randint(1, self.vocab_size, (n,), device=self.device, dtype=torch.float16)
 
     def get_words_from_speakers(self, speakers, contexts) -> torch.Tensor:
 
@@ -112,7 +116,7 @@ class BaseGame:
             ] = torch.stack(
                 [words, torch.ones_like(words)],
                 dim=-1,
-            ).long()
+            )
 
         memory_idx = self.state[speakers, objects_from_context, :, 1].argmax(-1)
 
@@ -163,7 +167,7 @@ class BaseGame:
                 ] = torch.stack(
                     [words[set_word_mask], torch.ones_like(words[set_word_mask])],
                     dim=-1,
-                ).long()
+                )
 
         # 1. find memory idx and reinforce
         if found_per_hearer.any():
@@ -185,27 +189,28 @@ class BaseGame:
             best_object_idx = best_flat_idx // self.memory
             best_memory_idx = best_flat_idx % self.memory
 
-            # Reinforce: increment the count
+            # Damp everything by -1 (clamped at 0)
+            self.state[
+                hearers[found_per_hearer], 
+                best_object_idx[found_per_hearer], :, 1] = torch.clamp(
+                    self.state[
+                        hearers[found_per_hearer], 
+                        best_object_idx[found_per_hearer], :, 1] - 1.0, min=0.0)
+
+            # Reinforce: increment the best match
             self.state[
                 hearers[found_per_hearer],
                 best_object_idx[found_per_hearer],
                 best_memory_idx[found_per_hearer],
                 1,
-            ] += 1
+            ] += 2.0
+
 
     def prune_memory(self):
-        """Remove competing words, keep only the dominant one per (agent, object)."""
-        # For each (agent, object), find memory slot with highest count
-        best_memory_idx = self.state[:, :, :, 1].argmax(dim=-1)  # (agents, objects)
 
-        # Create mask: True only for the best slot
-        memory_range = torch.arange(self.memory, device=self.device)
-        keep_mask = memory_range == best_memory_idx.unsqueeze(
-            -1
-        )  # (agents, objects, memory)
+        non_zero = self.state[:, :, :, 1] != 0
 
-        # Zero out non-best slots
-        self.state = self.state * keep_mask.unsqueeze(-1)
+        self.state *= non_zero.unsqueeze(-1)
 
     def unique_words_per_object(self) -> torch.Tensor:
         return torch.tensor(len(self.unique_words), device=self.device)
@@ -254,11 +259,7 @@ class BaseGame:
 
         return tensor_objects / torch.unique(top_for_object).shape[0]
 
-
-        
-
-
-    def step(self) -> None:
+    def step(self, i: int) -> None:
         speakers, hearers = self.choose_agents()
 
         contexts = self.generate_context()
@@ -267,13 +268,17 @@ class BaseGame:
 
         self.set_words_for_hearers(hearers, contexts, words)
 
+        if (i + 1) % self.prune_step == 0:
+            self.prune_memory()
+
+
     def play(self, rounds: int = 1) -> None:
 
         self.stats = torch.zeros((4, rounds), dtype=torch.float32)
 
         # progress = tqdm.tqdm(, desc="Playing rounds", position=3)
         for i in range(rounds):
-            self.step()
+            self.step(i)
 
             self.stats[0, i] = self.success_rate()
             self.stats[1, i] = self.coherence()

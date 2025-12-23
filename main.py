@@ -13,7 +13,16 @@ def test_games():
     device: torch.device = get_default_device()
     print(f"Using device: {device}")
 
-    game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8, max_agent_pairs=1)
+    game = BaseGame(
+        16, 
+        16, 
+        memory=50, 
+        device=device, 
+        vocab_size=2**8, 
+        # max_agent_pairs=1,
+        context_size=(2, 5)
+        )
+    
     game.play(10000)
     game.plot_stats()
 
@@ -120,9 +129,9 @@ def test_base_game():
 
 if __name__ == "__main__":
     try:
-    # test_games()
-    # monte_carlo_simulation()
-        test_base_game()
+        test_games()
+        # monte_carlo_simulation()
+        # test_base_game()
     except Exception as e:
         with open("error_log.txt", "w") as f:
             f.write(f"An error occurred: {e}\n\n")

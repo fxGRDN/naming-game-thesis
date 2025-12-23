@@ -5,17 +5,15 @@ import torch
 class FuzzyObjectGame(BaseGame):
     def __init__(
         self,
-        game_instances=1,
         agents=100,
         objects=100,
         memory=5,
         vocab_size=10**6,
-        prune_step=100,
+        prune_step=50,
         confusion_prob=0.0,
         device=torch.device("cpu"),
     ) -> None:
         super().__init__(
-            game_instances=game_instances,
             agents=agents,
             objects=objects,
             memory=memory,
@@ -133,10 +131,17 @@ class FuzzyObjectGame(BaseGame):
                         first_empty[has_slot]
                     )
 
-            # Reinforce: increment the count
+            self.state[
+                hearers[found_per_hearer], 
+                best_object_idx[found_per_hearer], :, 1] = torch.clamp(
+                    self.state[
+                        hearers[found_per_hearer], 
+                        best_object_idx[found_per_hearer], :, 1] - 1.0, min=0.0)
+
+            # Reinforce: increment the best match
             self.state[
                 hearers[found_per_hearer],
                 best_object_idx[found_per_hearer],
                 best_memory_idx[found_per_hearer],
                 1,
-            ] += 1
+            ] += 2.0
