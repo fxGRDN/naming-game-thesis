@@ -6,10 +6,11 @@ import matplotlib.pyplot as plt
 class BaseGame:
     def __init__(
         self,
+        game_instances=1,
         agents=100,
         objects=100,
         memory=5,
-        vocab_size=10**6,
+        vocab_size=2**16,  # 2 bytes
         prune_step=50,
         max_agent_pairs=None,
         context_size=(1, 3),
@@ -21,8 +22,7 @@ class BaseGame:
         self.memory = memory
         self.vocab_size = vocab_size
         self.prune_step = prune_step
-        self.unique_words = set()
-        self.max_agent_pairs = max_agent_pairs
+        self.game_instances = game_instances
         self.context_size = context_size
         self.device = device
         self.successful_communications = 0
@@ -30,29 +30,34 @@ class BaseGame:
 
         # n_agents, n_objects, memory that holds: (word_id, count)
         self.state = torch.zeros(
-            (agents, objects, memory, 2), dtype=torch.float16, device=self.device
+            (game_instances, agents, objects, memory, 2),
+            dtype=torch.uint16,
+            device=self.device,
         )
-
-        self.n_pairs = self.agents // 2
-
-        if self.max_agent_pairs is not None:
-            self.n_pairs = min(self.n_pairs, self.max_agent_pairs)
 
         if self.context_size[1] > self.objects:
             raise ValueError(
                 f"Max context size {self.context_size[1]} cannot be larger than number of objects {self.objects}"
             )
 
+        self.weights = torch.ones(self.agents, device=self.device)
+        self.instance_ids = torch.arange(game_instances, device=self.device)
+
     def choose_agents(self):
-        perms = torch.randperm(self.agents)
+        """
+        Sequential Sampling:
+        Selects 1 Speaker and 1 Hearer uniformly at random.
+        Constraint: Speaker != Hearer.
+        """
+        indices = torch.multinomial(self.weights, num_samples=2, replacement=False)
 
-        hearers = perms[: self.agents // 2][: self.n_pairs]
-        speakers = perms[self.agents // 2 :][: self.n_pairs]
+        speaker = indices[0].unsqueeze(0)  # Shape: (1,)
+        hearer = indices[1].unsqueeze(0)  # Shape: (1,)
 
-        return speakers, hearers
+        return speaker, hearer
 
     def generate_context(self) -> torch.Tensor:
-        n = self.n_pairs
+        n = self.game_instances
         o = self.objects
         max_k = self.context_size[1]
 
@@ -93,36 +98,42 @@ class BaseGame:
         return chosen
 
     def gen_words(self, n) -> torch.Tensor:
-        return torch.randint(1, self.vocab_size, (n,), device=self.device, dtype=torch.float16)
+        return torch.randint(
+            1, self.vocab_size, (n,), device=self.device, dtype=torch.float16
+        )
 
     def get_words_from_speakers(self, speakers, contexts) -> torch.Tensor:
 
         objects_from_context = self.choose_object_from_context(contexts)
 
         has_name_for_object = (
-            self.state[speakers, objects_from_context, :, 1].sum(-1) > 0
+            self.state[self.instance_ids, speakers, objects_from_context, :, 1].sum(-1)
+            > 0
         )
 
         if (~has_name_for_object).any():
             n_words = (~has_name_for_object).sum().item()
             words = self.gen_words(n_words)
 
-            self.unique_words.update(words.tolist())
+            idx_i = self.instance_ids[~has_name_for_object]
+            idx_s = speakers[~has_name_for_object]
+            idx_o = objects_from_context[~has_name_for_object]
 
+            self.state[idx_i, idx_s, idx_o, 0, 0] = words
+            self.state[idx_i, idx_s, idx_o, 0, 1] = 1
+
+        memory_idx = self.state[
+            self.instance_ids, speakers, objects_from_context, :, 1
+        ].argmax(-1)
+
+        return (
             self.state[
-                speakers[~has_name_for_object],
-                objects_from_context[~has_name_for_object],
-                0,
-            ] = torch.stack(
-                [words, torch.ones_like(words)],
-                dim=-1,
-            )
+                self.instance_ids, speakers, objects_from_context, memory_idx, 0
+            ],
+            objects_from_context,
+        )
 
-        memory_idx = self.state[speakers, objects_from_context, :, 1].argmax(-1)
-
-        return self.state[speakers, objects_from_context, memory_idx, 0]
-
-    def set_words_for_hearers(self, hearers, contexts, words) -> None:
+    def set_words_for_hearers(self, hearers, contexts, words, topics) -> None:
         """
         Hearer can:
             1. know heard word and see named object in context -> reinforce association
@@ -136,7 +147,7 @@ class BaseGame:
         objects_from_context = self.choose_object_from_context(contexts)
 
         # 1. check if memory holds the word of objects in context
-        hearer_words = self.state[hearers, :, :, 0]
+        hearer_words = self.state[self.instance_ids, hearers, :, :, 0]
 
         # mask words not in context
         hearer_words_in_context = hearer_words * (contexts > 0).unsqueeze(-1)
@@ -153,7 +164,7 @@ class BaseGame:
         if (~found_per_hearer).any():
 
             avaible_memory_slot = (
-                self.state[hearers, objects_from_context, :, 1] == 0
+                self.state[self.instance_ids, hearers, objects_from_context, :, 1] == 0
             )  # (n_missing_hearers,)
             set_word_mask = (~found_per_hearer) & avaible_memory_slot.any(dim=-1)
 
@@ -161,6 +172,7 @@ class BaseGame:
                 first_empty_idx = avaible_memory_slot.float().argmax(dim=-1)
 
                 self.state[
+                    self.instance_ids[set_word_mask],
                     hearers[set_word_mask],
                     objects_from_context[set_word_mask],
                     first_empty_idx[set_word_mask],
@@ -172,11 +184,10 @@ class BaseGame:
         # 1. find memory idx and reinforce
         if found_per_hearer.any():
 
-            self.successful_communications = found_per_hearer.sum().item()
-            # two objects could have the same word, so we take one with highest association
-
             # Get counts for matching positions, zero elsewhere
-            hearer_counts = self.state[hearers, :, :, 1]  # (n_hearers, objects, memory)
+            hearer_counts = self.state[
+                self.instance_ids, hearers, :, :, 1
+            ]  # (n_hearers, objects, memory)
             match_counts = hearer_counts * matches  # (n_hearers, objects, memory)
 
             # Flatten (objects, memory) -> find best (object, memory) combo per hearer
@@ -191,20 +202,41 @@ class BaseGame:
 
             # Damp everything by -1 (clamped at 0)
             self.state[
-                hearers[found_per_hearer], 
-                best_object_idx[found_per_hearer], :, 1] = torch.clamp(
-                    self.state[
-                        hearers[found_per_hearer], 
-                        best_object_idx[found_per_hearer], :, 1] - 1.0, min=0.0)
+                self.instance_ids[found_per_hearer],
+                hearers[found_per_hearer],
+                best_object_idx[found_per_hearer],
+                :,
+                1,
+            ] = torch.clamp(
+                self.state[
+                    self.instance_ids[found_per_hearer],
+                    hearers[found_per_hearer],
+                    best_object_idx[found_per_hearer],
+                    :,
+                    1,
+                ]
+                - 1,
+                min=0,
+            )
 
             # Reinforce: increment the best match
             self.state[
+                self.instance_ids[found_per_hearer],
                 hearers[found_per_hearer],
                 best_object_idx[found_per_hearer],
                 best_memory_idx[found_per_hearer],
                 1,
-            ] += 2.0
-
+            ] = torch.clamp(
+                self.state[
+                    self.instance_ids[found_per_hearer],
+                    hearers[found_per_hearer],
+                    best_object_idx[found_per_hearer],
+                    best_memory_idx[found_per_hearer],
+                    1,
+                ]
+                + 2,
+                max=100,
+            )
 
     def prune_memory(self):
 
@@ -223,7 +255,6 @@ class BaseGame:
         return torch.tensor(
             self.successful_communications / n_communications, device=self.device
         )
-    
 
     def coherence(self) -> torch.Tensor:
         tensor_agents = torch.tensor(self.agents, device=self.device)
@@ -235,15 +266,15 @@ class BaseGame:
             0,
         ].t()  # (objects, agents)
 
-        sorted_words, _ = torch.sort(top_words, dim=1) 
+        sorted_words, _ = torch.sort(top_words, dim=1)
 
         count_zero = (sorted_words == 0).sum(dim=1, keepdim=True)  # (objects, 1)
 
         diff = torch.diff(sorted_words, dim=1)  # (agents-1, objects)
         count_diffs = (diff != 0).sum(dim=1)  # (agents-1,)
 
-        return ((tensor_agents - count_diffs - count_zero)/ tensor_agents).mean()
-    
+        return ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean()
+
     def count_polysems(self) -> torch.Tensor:
         tensor_objects = torch.tensor(self.objects, device=self.device)
 
@@ -253,7 +284,7 @@ class BaseGame:
             torch.arange(self.objects, device=self.device).unsqueeze(0),
             top_word_index,
             0,
-        ].t() 
+        ].t()
 
         top_for_object = top_words.mode(dim=1).values
 
@@ -264,13 +295,12 @@ class BaseGame:
 
         contexts = self.generate_context()
 
-        words = self.get_words_from_speakers(speakers, contexts)
+        words, topics = self.get_words_from_speakers(speakers, contexts)
 
-        self.set_words_for_hearers(hearers, contexts, words)
+        self.set_words_for_hearers(hearers, contexts, words, topics)
 
         if (i + 1) % self.prune_step == 0:
             self.prune_memory()
-
 
     def play(self, rounds: int = 1) -> None:
 
@@ -280,11 +310,11 @@ class BaseGame:
         for i in range(rounds):
             self.step(i)
 
-            self.stats[0, i] = self.success_rate()
-            self.stats[1, i] = self.coherence()
-            self.stats[2, i] = self.unique_words_per_object().float()
-            self.stats[3, i] = self.count_polysems().float()
-              # --- IGNORE ---
+            # self.stats[0, i] = self.success_rate()
+            # self.stats[1, i] = self.coherence()
+            # self.stats[2, i] = self.unique_words_per_object().float()
+            # self.stats[3, i] = self.count_polysems().float()
+            # # --- IGNORE ---
 
             # progress.set_postfix(
             #     {
@@ -320,6 +350,5 @@ class BaseGame:
         plt.plot(x, self.stats[3].cpu().numpy())
         plt.title("Word per Object Ratio")
         plt.xlabel("Rounds")
-
 
         plt.savefig(f"plots/{self.fig_prefix}_stats.png")

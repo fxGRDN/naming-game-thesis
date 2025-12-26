@@ -1,21 +1,22 @@
-An error occurred: The size of tensor a (2) must match the size of tensor b (50) at non-singleton dimension 3
+An error occurred: "index_cpu" not implemented for 'UInt16'
 
 Traceback:
 Traceback (most recent call last):
-  File "/home/studenci/repo/naming-game-thesis/main.py", line 132, in <module>
+  File "/home/felix/repo/naming-game-thesis/main.py", line 135, in <module>
     test_games()
     ~~~~~~~~~~^^
-  File "/home/studenci/repo/naming-game-thesis/main.py", line 26, in test_games
-    game.play(1000)
-    ~~~~~~~~~^^^^^^
-  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 277, in play
+  File "/home/felix/repo/naming-game-thesis/main.py", line 26, in test_games
+    game.play(10000)
+    ~~~~~~~~~^^^^^^^
+  File "/home/felix/repo/naming-game-thesis/games/base_game.py", line 311, in play
     self.step(i)
     ~~~~~~~~~^^^
-  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 269, in step
-    self.prune_memory()
-    ~~~~~~~~~~~~~~~~~^^
-  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 210, in prune_memory
-    self.state *= keep
-  File "/home/studenci/repo/naming-game-thesis/.venv/lib/python3.14/site-packages/torch/utils/_device.py", line 103, in __torch_function__
+  File "/home/felix/repo/naming-game-thesis/games/base_game.py", line 298, in step
+    words, topics = self.get_words_from_speakers(speakers, contexts)
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/home/felix/repo/naming-game-thesis/games/base_game.py", line 110, in get_words_from_speakers
+    self.state[self.instance_ids, speakers, objects_from_context, :, 1].sum(-1)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/felix/repo/naming-game-thesis/.venv/lib/python3.14/site-packages/torch/utils/_device.py", line 103, in __torch_function__
     return func(*args, **kwargs)
-RuntimeError: The size of tensor a (2) must match the size of tensor b (50) at non-singleton dimension 3
+NotImplementedError: "index_cpu" not implemented for 'UInt16'
