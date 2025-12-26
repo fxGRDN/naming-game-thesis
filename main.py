@@ -14,17 +14,16 @@ def test_games():
     print(f"Using device: {device}")
 
     game = BaseGame(
+        10000,
         16,
         16,
         memory=50,
         device=device,
-        vocab_size=2**8,
-        # max_agent_pairs=1,
-        context_size=(2, 5),
+        context_size=(2, 3),
     )
 
     game.play(10000)
-    # game.plot_stats()
+    game.plot_stats()
 
     # fuzzy_object_game = FuzzyObjectGame(
     #     game_instances=1,

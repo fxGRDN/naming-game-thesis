@@ -1,6 +1,7 @@
 import torch
-import tqdm
 import matplotlib.pyplot as plt
+import tqdm
+import numpy as np
 
 
 class BaseGame:
@@ -10,9 +11,8 @@ class BaseGame:
         agents=100,
         objects=100,
         memory=5,
-        vocab_size=2**16,  # 2 bytes
+        vocab_size=2**15,  # 2 bytes signed, change to uint if using cuda
         prune_step=50,
-        max_agent_pairs=None,
         context_size=(1, 3),
         device=torch.device("cpu"),
     ) -> None:
@@ -25,13 +25,16 @@ class BaseGame:
         self.game_instances = game_instances
         self.context_size = context_size
         self.device = device
-        self.successful_communications = 0
         self.fig_prefix = "base_game"
+
+        self.successful_communications = torch.zeros(
+            self.game_instances, device=self.device
+        )
 
         # n_agents, n_objects, memory that holds: (word_id, count)
         self.state = torch.zeros(
             (game_instances, agents, objects, memory, 2),
-            dtype=torch.uint16,
+            dtype=torch.int16,
             device=self.device,
         )
 
@@ -40,21 +43,15 @@ class BaseGame:
                 f"Max context size {self.context_size[1]} cannot be larger than number of objects {self.objects}"
             )
 
-        self.weights = torch.ones(self.agents, device=self.device)
         self.instance_ids = torch.arange(game_instances, device=self.device)
 
     def choose_agents(self):
-        """
-        Sequential Sampling:
-        Selects 1 Speaker and 1 Hearer uniformly at random.
-        Constraint: Speaker != Hearer.
-        """
-        indices = torch.multinomial(self.weights, num_samples=2, replacement=False)
+        scores = torch.rand((self.game_instances, self.agents), device=self.device)
+        pairs = torch.topk(scores, 2, dim=1).indices  # Shape: (num_instances, 2)
+        speakers = pairs[:, 0]  # (num_instances,)
+        hearers = pairs[:, 1]  # (num_instances,)
 
-        speaker = indices[0].unsqueeze(0)  # Shape: (1,)
-        hearer = indices[1].unsqueeze(0)  # Shape: (1,)
-
-        return speaker, hearer
+        return speakers, hearers
 
     def generate_context(self) -> torch.Tensor:
         n = self.game_instances
@@ -99,7 +96,7 @@ class BaseGame:
 
     def gen_words(self, n) -> torch.Tensor:
         return torch.randint(
-            1, self.vocab_size, (n,), device=self.device, dtype=torch.float16
+            1, self.vocab_size, (n,), device=self.device, dtype=torch.int16
         )
 
     def get_words_from_speakers(self, speakers, contexts) -> torch.Tensor:
@@ -142,7 +139,9 @@ class BaseGame:
 
         """
 
-        self.successful_communications = 0
+        self.successful_communications = torch.zeros_like(
+            self.successful_communications
+        )
 
         objects_from_context = self.choose_object_from_context(contexts)
 
@@ -200,6 +199,10 @@ class BaseGame:
             best_object_idx = best_flat_idx // self.memory
             best_memory_idx = best_flat_idx % self.memory
 
+            self.successful_communications = (topics == best_object_idx).to(
+                torch.float32
+            )
+
             # Damp everything by -1 (clamped at 0)
             self.state[
                 self.instance_ids[found_per_hearer],
@@ -240,26 +243,18 @@ class BaseGame:
 
     def prune_memory(self):
 
-        non_zero = self.state[:, :, :, 1] != 0
+        non_zero = self.state[:, :, :, :, 1] != 0
 
         self.state *= non_zero.unsqueeze(-1)
 
-    def unique_words_per_object(self) -> torch.Tensor:
-        return torch.tensor(len(self.unique_words), device=self.device)
-
     def success_rate(self) -> torch.Tensor:
-        n_communications = self.n_pairs
-        if n_communications == 0:
-            return torch.tensor(0.0, device=self.device)
-
-        return torch.tensor(
-            self.successful_communications / n_communications, device=self.device
-        )
+        return self.successful_communications
 
     def coherence(self) -> torch.Tensor:
         tensor_agents = torch.tensor(self.agents, device=self.device)
-        top_word_index = self.state[:, :, :, 1].argmax(dim=-1)  # (agents, objects)
+        top_word_index = self.state[:, :, :, :, 1].argmax(dim=-1)  # (agents, objects)
         top_words = self.state[
+            self.instance_ids.unsqueeze(1),
             torch.arange(self.agents, device=self.device).unsqueeze(1),
             torch.arange(self.objects, device=self.device).unsqueeze(0),
             top_word_index,
@@ -304,13 +299,13 @@ class BaseGame:
 
     def play(self, rounds: int = 1) -> None:
 
-        self.stats = torch.zeros((4, rounds), dtype=torch.float32)
+        self.stats = torch.zeros((4, rounds, self.game_instances), dtype=torch.float32)
 
-        # progress = tqdm.tqdm(, desc="Playing rounds", position=3)
-        for i in range(rounds):
+        progress = tqdm.tqdm(range(rounds), desc="Playing rounds", position=3)
+        for i in progress:
             self.step(i)
 
-            # self.stats[0, i] = self.success_rate()
+            self.stats[0, i] = self.success_rate()
             # self.stats[1, i] = self.coherence()
             # self.stats[2, i] = self.unique_words_per_object().float()
             # self.stats[3, i] = self.count_polysems().float()
@@ -324,31 +319,40 @@ class BaseGame:
             # )
 
     def plot_stats(self) -> None:
-        rounds = self.stats.size(1)
+        rounds = self.stats.shape[1]
         x = torch.arange(rounds).cpu().numpy()
+
+        def mean_q(metric_idx):
+            data = self.stats[metric_idx]  # shape (steps, iters)
+            mean = data.mean(axis=-1)
+            lo = np.percentile(data, 2.5, axis=1)
+            hi = np.percentile(data, 97.5, axis=1)
+            return mean, lo, hi
 
         plt.figure(figsize=(12, 12))
 
         plt.subplot(2, 2, 1)
-        plt.plot(x, self.stats[0].cpu().numpy())
+        mean, lo, hi = mean_q(0)
+        plt.plot(x, mean.cpu().numpy(), color="C0")
+        plt.fill_between(x, lo, hi, color="C0", alpha=0.2)
         plt.title("Success Rate")
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 
-        plt.subplot(2, 2, 2)
-        plt.plot(x, self.stats[1].cpu().numpy())
-        plt.title("Coherence")
-        plt.xlabel("Rounds")
-        plt.ylim(0, 1.2)
+        # plt.subplot(2, 2, 2)
+        # plt.plot(x, self.stats[1].cpu().numpy())
+        # plt.title("Coherence")
+        # plt.xlabel("Rounds")
+        # plt.ylim(0, 1.2)
 
-        plt.subplot(2, 2, 3)
-        plt.plot(x, self.stats[2].cpu().numpy())
-        plt.title("Unique Words")
-        plt.xlabel("Rounds")
+        # plt.subplot(2, 2, 3)
+        # plt.plot(x, self.stats[2].cpu().numpy())
+        # plt.title("Unique Words")
+        # plt.xlabel("Rounds")
 
-        plt.subplot(2, 2, 4)
-        plt.plot(x, self.stats[3].cpu().numpy())
-        plt.title("Word per Object Ratio")
-        plt.xlabel("Rounds")
+        # plt.subplot(2, 2, 4)
+        # plt.plot(x, self.stats[3].cpu().numpy())
+        # plt.title("Word per Object Ratio")
+        # plt.xlabel("Rounds")
 
         plt.savefig(f"plots/{self.fig_prefix}_stats.png")
