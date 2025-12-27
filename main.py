@@ -14,7 +14,7 @@ def test_games():
     print(f"Using device: {device}")
 
     game = BaseGame(
-        10000,
+        1,
         16,
         16,
         memory=50,

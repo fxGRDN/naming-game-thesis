@@ -252,23 +252,32 @@ class BaseGame:
 
     def coherence(self) -> torch.Tensor:
         tensor_agents = torch.tensor(self.agents, device=self.device)
-        top_word_index = self.state[:, :, :, :, 1].argmax(dim=-1)  # (agents, objects)
+        top_word_index = self.state[:, :, :, :, 1].argmax(
+            dim=-1
+        )  # (games, agents, objects)
+
         top_words = self.state[
             self.instance_ids.unsqueeze(1),
             torch.arange(self.agents, device=self.device).unsqueeze(1),
             torch.arange(self.objects, device=self.device).unsqueeze(0),
             top_word_index,
             0,
-        ].t()  # (objects, agents)
+        ].transpose(
+            -1, -2
+        )  # (games, objects, agents)
 
-        sorted_words, _ = torch.sort(top_words, dim=1)
+        sorted_words, _ = torch.sort(top_words, dim=2)
 
-        count_zero = (sorted_words == 0).sum(dim=1, keepdim=True)  # (objects, 1)
+        print(sorted_words)
 
-        diff = torch.diff(sorted_words, dim=1)  # (agents-1, objects)
-        count_diffs = (diff != 0).sum(dim=1)  # (agents-1,)
+        count_zero = (sorted_words == 0).sum(dim=2, keepdim=True)  # (objects, 1)
 
-        return ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean()
+        diff = torch.diff(sorted_words, dim=2)  # (agents-1, objects)
+        count_diffs = (diff != 0).sum(dim=2)  # (agents-1,)
+
+        print("Coherence calculation:", count_diffs)
+
+        return ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean(dim=1)
 
     def count_polysems(self) -> torch.Tensor:
         tensor_objects = torch.tensor(self.objects, device=self.device)
@@ -279,7 +288,9 @@ class BaseGame:
             torch.arange(self.objects, device=self.device).unsqueeze(0),
             top_word_index,
             0,
-        ].t()
+        ].transpose(
+            -1, -2
+        )  # (objects, agents)
 
         top_for_object = top_words.mode(dim=1).values
 
@@ -306,7 +317,7 @@ class BaseGame:
             self.step(i)
 
             self.stats[0, i] = self.success_rate()
-            # self.stats[1, i] = self.coherence()
+            self.stats[1, i] = self.coherence()
             # self.stats[2, i] = self.unique_words_per_object().float()
             # self.stats[3, i] = self.count_polysems().float()
             # # --- IGNORE ---
@@ -339,11 +350,13 @@ class BaseGame:
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 
-        # plt.subplot(2, 2, 2)
-        # plt.plot(x, self.stats[1].cpu().numpy())
-        # plt.title("Coherence")
-        # plt.xlabel("Rounds")
-        # plt.ylim(0, 1.2)
+        plt.subplot(2, 2, 2)
+        mean, lo, hi = mean_q(1)
+        plt.plot(x, mean.cpu().numpy(), color="C1")
+        plt.fill_between(x, lo, hi, color="C1", alpha=0.2)
+        plt.title("Coherence")
+        plt.xlabel("Rounds")
+        plt.ylim(0, 1.2)
 
         # plt.subplot(2, 2, 3)
         # plt.plot(x, self.stats[2].cpu().numpy())
