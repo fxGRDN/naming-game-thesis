@@ -14,15 +14,15 @@ def test_games():
     print(f"Using device: {device}")
 
     game = BaseGame(
-        1,
-        16,
+        1000,
+        32,
         16,
         memory=50,
         device=device,
         context_size=(2, 3),
     )
 
-    game.play(10000)
+    game.play(50000)
     game.plot_stats()
 
     # fuzzy_object_game = FuzzyObjectGame(

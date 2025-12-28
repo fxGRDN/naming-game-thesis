@@ -1,16 +1,19 @@
-An error occurred: The expanded size of the tensor (1) must match the existing size (16) at non-singleton dimension 0.  Target sizes: [1].  Tensor sizes: [16]
+An error occurred: Dimension out of range (expected to be in range of [-2, 1], but got 2)
 
 Traceback:
 Traceback (most recent call last):
-  File "/home/felix/repo/naming-game-thesis/main.py", line 134, in <module>
+  File "/home/studenci/repo/naming-game-thesis/main.py", line 134, in <module>
     test_games()
     ~~~~~~~~~~^^
-  File "/home/felix/repo/naming-game-thesis/main.py", line 25, in test_games
+  File "/home/studenci/repo/naming-game-thesis/main.py", line 25, in test_games
     game.play(10000)
     ~~~~~~~~~^^^^^^^
-  File "/home/felix/repo/naming-game-thesis/games/base_game.py", line 320, in play
-    self.stats[1, i] = self.coherence()
-    ~~~~~~~~~~^^^^^^
-  File "/home/felix/repo/naming-game-thesis/.venv/lib/python3.14/site-packages/torch/utils/_device.py", line 103, in __torch_function__
+  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 343, in play
+    self.stats[3, i] = self.count_polysems().float()
+                       ~~~~~~~~~~~~~~~~~~~^^
+  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 298, in count_polysems
+    sorted_words, _ = torch.sort(top_for_object, dim=2)
+                      ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/studenci/repo/naming-game-thesis/.venv/lib/python3.14/site-packages/torch/utils/_device.py", line 103, in __torch_function__
     return func(*args, **kwargs)
-RuntimeError: The expanded size of the tensor (1) must match the existing size (16) at non-singleton dimension 0.  Target sizes: [1].  Tensor sizes: [16]
+IndexError: Dimension out of range (expected to be in range of [-2, 1], but got 2)

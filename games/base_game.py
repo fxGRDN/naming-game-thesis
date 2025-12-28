@@ -257,7 +257,7 @@ class BaseGame:
         )  # (games, agents, objects)
 
         top_words = self.state[
-            self.instance_ids.unsqueeze(1),
+            self.instance_ids.unsqueeze(1).unsqueeze(2),
             torch.arange(self.agents, device=self.device).unsqueeze(1),
             torch.arange(self.objects, device=self.device).unsqueeze(0),
             top_word_index,
@@ -268,22 +268,23 @@ class BaseGame:
 
         sorted_words, _ = torch.sort(top_words, dim=2)
 
-        print(sorted_words)
-
-        count_zero = (sorted_words == 0).sum(dim=2, keepdim=True)  # (objects, 1)
+        count_zero = (sorted_words == 0).sum(dim=2)  # (objects, 1)
 
         diff = torch.diff(sorted_words, dim=2)  # (agents-1, objects)
+
         count_diffs = (diff != 0).sum(dim=2)  # (agents-1,)
 
-        print("Coherence calculation:", count_diffs)
+        coherence = ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean()
 
-        return ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean(dim=1)
+        return coherence
+    
 
     def count_polysems(self) -> torch.Tensor:
-        tensor_objects = torch.tensor(self.objects, device=self.device)
+        tensor_objects_count = torch.tensor(self.objects, device=self.device)
 
-        top_word_index = self.state[:, :, :, 1].argmax(dim=-1)  # (agents, objects)
+        top_word_index = self.state[:, :, :, :, 1].argmax(dim=-1)  # (agents, objects)
         top_words = self.state[
+            self.instance_ids.unsqueeze(1).unsqueeze(2),
             torch.arange(self.agents, device=self.device).unsqueeze(1),
             torch.arange(self.objects, device=self.device).unsqueeze(0),
             top_word_index,
@@ -292,9 +293,28 @@ class BaseGame:
             -1, -2
         )  # (objects, agents)
 
-        top_for_object = top_words.mode(dim=1).values
+        top_for_object = top_words.mode(dim=2).values
 
-        return tensor_objects / torch.unique(top_for_object).shape[0]
+        sorted_words, _ = torch.sort(top_for_object, dim=1)
+
+        diff = torch.diff(sorted_words, dim=1)  # (agents-1, objects)
+
+        count_diffs = (diff != 0).sum(dim=1) + 1  # (agents-1,)
+        return tensor_objects_count / count_diffs
+
+
+
+        print(uniqe_words_counts)
+
+        return tensor_objects_count / uniqe_words_counts
+
+
+    def vocab_usage(self):
+
+        usage = (self.state[:, :, :, :, 0] > 0).float().sum(-1)
+
+        return usage.mean()
+
 
     def step(self, i: int) -> None:
         speakers, hearers = self.choose_agents()
@@ -318,8 +338,8 @@ class BaseGame:
 
             self.stats[0, i] = self.success_rate()
             self.stats[1, i] = self.coherence()
-            # self.stats[2, i] = self.unique_words_per_object().float()
-            # self.stats[3, i] = self.count_polysems().float()
+            self.stats[2, i] = self.vocab_usage().float()
+            self.stats[3, i] = self.count_polysems().float()
             # # --- IGNORE ---
 
             # progress.set_postfix(
@@ -334,38 +354,45 @@ class BaseGame:
         x = torch.arange(rounds).cpu().numpy()
 
         def mean_q(metric_idx):
-            data = self.stats[metric_idx]  # shape (steps, iters)
+            data = self.stats[metric_idx].cpu().numpy()  # shape (steps, iters)
             mean = data.mean(axis=-1)
-            lo = np.percentile(data, 2.5, axis=1)
-            hi = np.percentile(data, 97.5, axis=1)
+            lo = np.percentile(data, 0.5, axis=1)
+            hi = np.percentile(data, 99.5, axis=1)
             return mean, lo, hi
 
         plt.figure(figsize=(12, 12))
 
         plt.subplot(2, 2, 1)
         mean, lo, hi = mean_q(0)
-        plt.plot(x, mean.cpu().numpy(), color="C0")
-        plt.fill_between(x, lo, hi, color="C0", alpha=0.2)
+        plt.plot(x, mean, color="C0")
+        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
         plt.title("Success Rate")
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 
         plt.subplot(2, 2, 2)
         mean, lo, hi = mean_q(1)
-        plt.plot(x, mean.cpu().numpy(), color="C1")
+        plt.plot(x, mean, color="C1")
+        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
         plt.fill_between(x, lo, hi, color="C1", alpha=0.2)
         plt.title("Coherence")
         plt.xlabel("Rounds")
         plt.ylim(0, 1.2)
 
-        # plt.subplot(2, 2, 3)
-        # plt.plot(x, self.stats[2].cpu().numpy())
-        # plt.title("Unique Words")
-        # plt.xlabel("Rounds")
+        plt.subplot(2, 2, 3)
+        mean, lo, hi = mean_q(2)
+        plt.plot(x, mean, color="C2")
+        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
+        plt.fill_between(x, lo, hi, color="C2", alpha=0.2)
+        plt.title("Vocab Usage")
+        plt.xlabel("Rounds")
 
-        # plt.subplot(2, 2, 4)
-        # plt.plot(x, self.stats[3].cpu().numpy())
-        # plt.title("Word per Object Ratio")
-        # plt.xlabel("Rounds")
+        plt.subplot(2, 2, 4)
+        mean, lo, hi = mean_q(3)
+        plt.fill_between(x, lo, hi, color="C3", alpha=0.2)
+        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
+        plt.plot(x, mean, color="C3")
+        plt.title("Word per Object Ratio")
+        plt.xlabel("Rounds")
 
         plt.savefig(f"plots/{self.fig_prefix}_stats.png")
