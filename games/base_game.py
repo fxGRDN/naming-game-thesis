@@ -99,7 +99,7 @@ class BaseGame:
             1, self.vocab_size, (n,), device=self.device, dtype=torch.int16
         )
 
-    def get_words_from_speakers(self, speakers, contexts) -> torch.Tensor:
+    def get_words_from_speakers(self, speakers, contexts) -> tuple[torch.Tensor, torch.Tensor]:
 
         objects_from_context = self.choose_object_from_context(contexts)
 
@@ -274,7 +274,7 @@ class BaseGame:
 
         count_diffs = (diff != 0).sum(dim=2)  # (agents-1,)
 
-        coherence = ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean()
+        coherence = ((tensor_agents - count_diffs - count_zero) / tensor_agents).mean(-1)
 
         return coherence
     
@@ -300,20 +300,16 @@ class BaseGame:
         diff = torch.diff(sorted_words, dim=1)  # (agents-1, objects)
 
         count_diffs = (diff != 0).sum(dim=1) + 1  # (agents-1,)
+
+
         return tensor_objects_count / count_diffs
-
-
-
-        print(uniqe_words_counts)
-
-        return tensor_objects_count / uniqe_words_counts
 
 
     def vocab_usage(self):
 
         usage = (self.state[:, :, :, :, 0] > 0).float().sum(-1)
 
-        return usage.mean()
+        return usage.mean((1, 2))
 
 
     def step(self, i: int) -> None:
@@ -328,11 +324,11 @@ class BaseGame:
         if (i + 1) % self.prune_step == 0:
             self.prune_memory()
 
-    def play(self, rounds: int = 1) -> None:
+    def play(self, rounds: int = 1, tqdm_desc: str = "Playing rounds") -> None:
 
         self.stats = torch.zeros((4, rounds, self.game_instances), dtype=torch.float32)
 
-        progress = tqdm.tqdm(range(rounds), desc="Playing rounds", position=3)
+        progress = tqdm.tqdm(range(rounds), desc=tqdm_desc, position=3)
         for i in progress:
             self.step(i)
 

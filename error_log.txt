@@ -1,19 +1,16 @@
-An error occurred: Dimension out of range (expected to be in range of [-2, 1], but got 2)
+An error occurred: expand(torch.cuda.FloatTensor{[1000, 16]}, size=[1000]): the number of sizes provided (1) must be greater or equal to the number of dimensions in the tensor (2)
 
 Traceback:
 Traceback (most recent call last):
-  File "/home/studenci/repo/naming-game-thesis/main.py", line 134, in <module>
-    test_games()
-    ~~~~~~~~~~^^
-  File "/home/studenci/repo/naming-game-thesis/main.py", line 25, in test_games
-    game.play(10000)
-    ~~~~~~~~~^^^^^^^
-  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 343, in play
-    self.stats[3, i] = self.count_polysems().float()
-                       ~~~~~~~~~~~~~~~~~~~^^
-  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 298, in count_polysems
-    sorted_words, _ = torch.sort(top_for_object, dim=2)
-                      ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/studenci/repo/naming-game-thesis/main.py", line 283, in <module>
+    baseline()
+    ~~~~~~~~^^
+  File "/home/studenci/repo/naming-game-thesis/main.py", line 155, in baseline
+    game.play(game_steps, tqdm_desc="Baseline Simulation")
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 339, in play
+    self.stats[2, i] = self.vocab_usage().float()
+    ~~~~~~~~~~^^^^^^
   File "/home/studenci/repo/naming-game-thesis/.venv/lib/python3.14/site-packages/torch/utils/_device.py", line 103, in __torch_function__
     return func(*args, **kwargs)
-IndexError: Dimension out of range (expected to be in range of [-2, 1], but got 2)
+RuntimeError: expand(torch.cuda.FloatTensor{[1000, 16]}, size=[1000]): the number of sizes provided (1) must be greater or equal to the number of dimensions in the tensor (2)
