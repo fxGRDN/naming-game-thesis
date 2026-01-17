@@ -6,6 +6,7 @@ import torch
 class FuzzyObjectWordGame(FuzzyObjectGame, FuzzyWordGame):
     def __init__(
         self,
+        game_instances: int = 1,
         agents=100,
         objects=100,
         memory=5,
@@ -13,12 +14,14 @@ class FuzzyObjectWordGame(FuzzyObjectGame, FuzzyWordGame):
         prune_step=50,
         confusion_prob=0.0,  # p
         flip_prob=0.0,  # q
+        context_size: tuple[int, int] = (2, 3),
         device=torch.device("cpu"),
     ) -> None:
 
         # Call FuzzyObjectGame's init (which calls BaseGame)
         FuzzyObjectGame.__init__(
             self,
+            game_instances=game_instances,
             agents=agents,
             objects=objects,
             memory=memory,
@@ -26,6 +29,7 @@ class FuzzyObjectWordGame(FuzzyObjectGame, FuzzyWordGame):
             prune_step=prune_step,
             confusion_prob=confusion_prob,
             device=device,
+            context_size=context_size,
         )
 
         # Set FuzzyWordGame-specific attributes

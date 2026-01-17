@@ -7,6 +7,9 @@ from games.fuzzy_word_object import FuzzyObjectWordGame
 import numpy as np
 from tqdm import tqdm
 import traceback
+import time
+import os
+import tqdm
 
 
 DEFAULT_POPULATION_SIZE = 16
@@ -118,25 +121,17 @@ def test_base_game():
     game_steps = 10000
     stats = np.zeros((iters, 4, game_steps))
 
-    for i in tqdm(range(iters), desc="Monte Carlo Simulations"):
-        game = BaseGame(
-            16, 16, memory=20, device=device, vocab_size=2**8
+    game = BaseGame(
+            game_instances=iters,
+            agents=DEFAULT_POPULATION_SIZE, 
+            objects=DEFAULT_OBJECTS_SIZE, 
+            memory=DEFAULT_MEMORY_SIZE, 
+            device=device, 
+            vocab_size=DEFAULT_VOCAB_SIZE, 
+            context_size=DEFAULT_CONTEXT_SIZE,
         )
-        game.play(game_steps)
-
-        stats[i] = game.stats.cpu().numpy()
-    np.save("data/base_game_monte_carlo_stats_one_pair.npy", stats)
-
-    game_steps = 1000
-
-    stats = np.zeros((4, game_steps, iters))
-
-    for i in tqdm(range(iters), desc="Monte Carlo Simulations"):
-        game = BaseGame(16, 16, memory=20, device=device, vocab_size=2**8)
-        game.play(game_steps)
-
-        stats[i] = game.stats.cpu().numpy()
-    np.save("data/base_game_monte_carlo_stats_all_pairs.npy", stats)
+    game.play(game_steps, tqdm_desc="Base Game Test Simulation")
+    game.plot_stats()
 
 
 def baseline():
@@ -154,17 +149,19 @@ def baseline():
         )
     game.play(game_steps, tqdm_desc="Baseline Simulation")
 
+
     stats = game.stats.cpu().numpy()
     np.save("data/base_game_monte_carlo_stats.npy", stats)
+    np.save("data/base_game_final_state.npy", game.state.cpu().numpy())
 
-
-
-def population_size_consensus():
+def population_size_base():
     device: torch.device = get_default_device()
     games = 1000
-    game_steps = 50000
-    population_sizes = [8, 16, 32, 64, 128, 256]
+    game_steps = 100000
+    population_sizes = [8, 16, 32, 64]
     stats = np.zeros((len(population_sizes), 4, game_steps, games))
+
+    os.makedirs("data/population_size_state", exist_ok=True)
 
     for j, pop_size in enumerate(population_sizes):
         game = BaseGame(
@@ -179,10 +176,11 @@ def population_size_consensus():
         game.play(game_steps, tqdm_desc=f"Population Size {pop_size}")
 
         stats[j] = game.stats.cpu().numpy()
-    np.save("data/base_game_population_size_consensus.npy", stats)
+        np.save(f"data/population_size_state/{pop_size}.npy", game.state.cpu().numpy())
 
 
-def object_size_consensus():
+
+def object_size_base():
     print("Starting object size consensus simulation...")
     device: torch.device = get_default_device()
     games = 1000
@@ -200,14 +198,14 @@ def object_size_consensus():
             vocab_size=DEFAULT_VOCAB_SIZE,
             context_size=DEFAULT_CONTEXT_SIZE,
         )
-        game.play(game_steps, tqdm_desc=f"Object Size {obj_size}")
+        game.play(game_steps, tqdm_desc=f"Object Size {obj_size}", calc_stats=False)
 
         stats[j] = game.stats.cpu().numpy()
-    np.save("data/base_game_object_size_consensus.npy", stats)
+    np.save("data/base_game_object_size_base.npy", stats)
 
 
-def memory_size_consensus():
-    print("Starting memory size consensus simulation...")
+def memory_size_base():
+    print("Starting memory size base simulation...")
     device: torch.device = get_default_device()
     games = 1000
     game_steps = 50000
@@ -227,11 +225,11 @@ def memory_size_consensus():
         game.play(game_steps, tqdm_desc=f"Memory Size {mem_size}")
 
         stats[j] = game.stats.cpu().numpy()
-    np.save("data/base_game_memory_size_consensus.npy", stats)
+    np.save("data/base_game_memory_size_base.npy", stats)
 
 
-def vocab_size_consensus():
-    print("Starting vocab size consensus simulation...")
+def vocab_size_base():
+    print("Starting vocab size base simulation...")
     device: torch.device = get_default_device()
     games = 1000
     game_steps = 50000
@@ -251,10 +249,10 @@ def vocab_size_consensus():
         game.play(game_steps, tqdm_desc=f"Vocab Size {vocab_size}")
 
         stats[j] = game.stats.cpu().numpy()
-    np.save("data/base_game_vocab_size_consensus.npy", stats)
+    np.save("data/base_game_vocab_size_base.npy", stats)
 
-def context_widow_size_consensus():
-    print("Starting context window size consensus simulation...")
+def context_window_size_base():
+    print("Starting context window size base simulation...")
     device: torch.device = get_default_device()
     games = 1000
     game_steps = 50000
@@ -274,18 +272,119 @@ def context_widow_size_consensus():
         game.play(game_steps, tqdm_desc=f"Context Size {context_size}")
 
         stats[j] = game.stats.cpu().numpy()
-    np.save("data/base_game_context_size_consensus.npy", stats)
+    np.save("data/base_game_context_size_base.npy", stats)
 
+
+def word_baseline():
+    device: torch.device = get_default_device()
+    iters = 1000
+    game_steps = 50000
+    bit_flip_prob = [0.1, 0.3, 0.5, 0.7, 0.9]
+    stats = np.zeros((len(bit_flip_prob), 4, game_steps, iters))
+
+    for i, flip_prob in enumerate(bit_flip_prob):
+        game = FuzzyWordGame(
+                game_instances=iters,
+                agents=DEFAULT_POPULATION_SIZE, 
+                objects=DEFAULT_OBJECTS_SIZE, 
+                memory=DEFAULT_MEMORY_SIZE, 
+                device=device, 
+                flip_prob=flip_prob,
+                vocab_size=DEFAULT_VOCAB_SIZE, 
+                context_size=DEFAULT_CONTEXT_SIZE,
+            )
+        game.play(game_steps, tqdm_desc="Word Simulation")
+
+        stats[i] = game.stats.cpu().numpy()
+    np.save("data/word_game_monte_carlo_stats.npy", stats)
+
+def object_baseline():
+    device: torch.device = get_default_device()
+    iters = 1000
+    game_steps = 50000
+    obj_conf = np.linspace(0.01, 0.1, 5)
+    stats = np.zeros((len(obj_conf), 4, game_steps, iters))
+
+    for i, conf in enumerate(obj_conf):
+        game = FuzzyWordGame(
+                game_instances=iters,
+                agents=DEFAULT_POPULATION_SIZE, 
+                objects=DEFAULT_OBJECTS_SIZE, 
+                memory=DEFAULT_MEMORY_SIZE, 
+                device=device, 
+                flip_prob=conf,
+                vocab_size=DEFAULT_VOCAB_SIZE, 
+                context_size=DEFAULT_CONTEXT_SIZE,
+            )
+        game.play(game_steps, tqdm_desc="Object Simulation")
+
+        stats[i] = game.stats.cpu().numpy()
+    np.save("data/object_game_monte_carlo_stats.npy", stats)
+
+
+def word_object_baseline():
+    device: torch.device = get_default_device()
+    iters = 1000
+    game_steps = 50000
+    obj_conf = np.linspace(0.01, 0.3, 25)
+    bit_flip_prob = np.linspace(0.01, 0.3, 25)
+
+    os.makedirs("data/word_object_game", exist_ok=True)
+
+
+    for i, conf in enumerate(obj_conf):
+        time_start = time.time()
+        stats = np.zeros((len(bit_flip_prob), 4, game_steps, iters))
+        for j, flip_prob in tqdm.tqdm(enumerate(bit_flip_prob)):
+            game = FuzzyObjectWordGame(
+                    game_instances=iters,
+                    agents=DEFAULT_POPULATION_SIZE, 
+                    objects=DEFAULT_OBJECTS_SIZE, 
+                    memory=DEFAULT_MEMORY_SIZE, 
+                    device=device, 
+                    confusion_prob=conf,
+                    flip_prob=flip_prob,
+                    vocab_size=DEFAULT_VOCAB_SIZE, 
+                    context_size=DEFAULT_CONTEXT_SIZE,
+                )
+            game.play(game_steps, tqdm_desc="Word-Object Simulation", disable_tqdm=True)
+
+            stats[j] = game.stats.cpu().numpy()
+        print(f"Saved part {i+1} of {len(obj_conf)}, time taken: {(time.time() - time_start)/60:.2f} minutes")
+        np.save(f"data/word_object_game/monte_carlo_stats_part_{i}.npy", stats)
+
+
+
+def clusters():
+    device: torch.device = get_default_device()
+    iters = 1
+    game_steps = 1000000
+    snapshot_state = [0, 10, 100, 1000, 10000, 100000, 500000, 999999]
+
+    game = BaseGame(
+            game_instances=iters,
+            agents=512, 
+            objects=DEFAULT_OBJECTS_SIZE, 
+            memory=DEFAULT_MEMORY_SIZE, 
+            device=device, 
+            vocab_size=DEFAULT_OBJECTS_SIZE, 
+            context_size=DEFAULT_CONTEXT_SIZE,
+        )
+    game.play(game_steps, tqdm_desc="Vocab Size Analysis", snapshot_state=snapshot_state, snap_name="classic_big_pop")
 
 if __name__ == "__main__":
     try:
-        # test_games()
+        # test_base_game()
         baseline()
-        # population_size_consensus()
-        # object_size_consensus()
-        # memory_size_consensus()
-        # vocab_size_consensus()
-        # context_widow_size_consensus()
+        # population_size_base()
+        # object_size_base()
+        # memory_size_base()
+        # vocab_size_base()
+        # context_window_size_base()
+        # word_baseline()
+        # object_baseline()
+        # word_object_baseline()
+        # clusters()
     except Exception as e:
         with open("error_log.txt", "w") as f:
             f.write(f"An error occurred: {e}\n\n")

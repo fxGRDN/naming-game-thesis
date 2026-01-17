@@ -27,6 +27,7 @@ class BaseGame:
         self.device = device
         self.fig_prefix = "base_game"
 
+
         self.successful_communications = torch.zeros(
             self.game_instances, device=self.device
         )
@@ -119,9 +120,13 @@ class BaseGame:
             self.state[idx_i, idx_s, idx_o, 0, 0] = words
             self.state[idx_i, idx_s, idx_o, 0, 1] = 1
 
-        memory_idx = self.state[
+
+        counts = self.state[
             self.instance_ids, speakers, objects_from_context, :, 1
-        ].argmax(-1)
+        ]
+        max_counts = counts.max(-1, keepdim=True).values
+        is_max = (counts == max_counts).float()
+        memory_idx = torch.multinomial(is_max, num_samples=1).squeeze(-1)
 
         return (
             self.state[
@@ -167,6 +172,7 @@ class BaseGame:
             )  # (n_missing_hearers,)
             set_word_mask = (~found_per_hearer) & avaible_memory_slot.any(dim=-1)
 
+            # has avaible memory slot
             if set_word_mask.any():
                 first_empty_idx = avaible_memory_slot.float().argmax(dim=-1)
 
@@ -177,6 +183,29 @@ class BaseGame:
                     first_empty_idx[set_word_mask],
                 ] = torch.stack(
                     [words[set_word_mask], torch.ones_like(words[set_word_mask])],
+                    dim=-1,
+                )
+            # no avaible memory slot, replace weakest
+            replace_word_mask = (~found_per_hearer) & (~avaible_memory_slot.any(dim=-1))
+            if replace_word_mask.any():
+                hearer_counts = self.state[
+                    self.instance_ids,
+                    hearers,
+                    objects_from_context,
+                    :,
+                    1,
+                ]  # (n_missing_hearers, memory)
+                min_counts = hearer_counts.min(-1, keepdim=True).values
+                is_min = (hearer_counts == min_counts).float()
+                memory_idx = torch.multinomial(is_min, num_samples=1).squeeze(-1)
+
+                self.state[
+                    self.instance_ids[replace_word_mask],
+                    hearers[replace_word_mask],
+                    objects_from_context[replace_word_mask],
+                    memory_idx[replace_word_mask],
+                ] = torch.stack(
+                    [words[replace_word_mask], torch.ones_like(words[replace_word_mask])],
                     dim=-1,
                 )
 
@@ -191,9 +220,12 @@ class BaseGame:
 
             # Flatten (objects, memory) -> find best (object, memory) combo per hearer
             flat_counts = match_counts.view(
-                match_counts.size(0), -1
-            )  # (n_hearers, objects*memory)
-            best_flat_idx = flat_counts.argmax(dim=-1)  # (n_hearers,)
+    match_counts.size(0), -1
+)  # (n_hearers, objects*memory)
+            max_flat_counts = flat_counts.max(dim=-1, keepdim=True).values
+            is_max_flat = (flat_counts == max_flat_counts).float()
+            best_flat_idx = torch.multinomial(is_max_flat, num_samples=1).squeeze(-1)  # (n_hearers,)
+
 
             # Convert flat index back to (object_idx, memory_idx)
             best_object_idx = best_flat_idx // self.memory
@@ -279,31 +311,32 @@ class BaseGame:
         return coherence
     
 
-    def count_polysems(self) -> torch.Tensor:
-        tensor_objects_count = torch.tensor(self.objects, device=self.device)
+    def global_reference_entropy(self) -> torch.Tensor:
 
-        top_word_index = self.state[:, :, :, :, 1].argmax(dim=-1)  # (agents, objects)
-        top_words = self.state[
-            self.instance_ids.unsqueeze(1).unsqueeze(2),
-            torch.arange(self.agents, device=self.device).unsqueeze(1),
-            torch.arange(self.objects, device=self.device).unsqueeze(0),
-            top_word_index,
-            0,
-        ].transpose(
-            -1, -2
-        )  # (objects, agents)
+        G, N, M = self.state.shape[0], self.agents, self.objects
+        V = self.vocab_size
+        best_idx = self.state[..., 1].argmax(dim=-1, keepdim=True)
+        top_words = self.state[..., 0].gather(-1, best_idx).squeeze(-1).long()
 
-        top_for_object = top_words.mode(dim=2).values
+        offsets = (torch.arange(G * M, device=self.device) * V).view(G, 1, M)
+        
+        counts = torch.bincount(
+            (top_words + offsets).view(-1), 
+            minlength=G * M * V
+        ).view(G, M, V).float()
 
-        sorted_words, _ = torch.sort(top_for_object, dim=1)
+        word_total_usage = counts.sum(dim=1, keepdim=True)
+        
+        p_obj_given_word = counts / (word_total_usage + 1e-10)
+        
+        word_entropies = -torch.sum(
+            p_obj_given_word * torch.log2(p_obj_given_word + 1e-10), 
+            dim=1
+        )
+        active_mask = (word_total_usage.squeeze(1) > 0).float()
+        mean_ref_entropy = (word_entropies * active_mask).sum(dim=1) / active_mask.sum(dim=1).clamp(min=1.0)
 
-        diff = torch.diff(sorted_words, dim=1)  # (agents-1, objects)
-
-        count_diffs = (diff != 0).sum(dim=1) + 1  # (agents-1,)
-
-
-        return tensor_objects_count / count_diffs
-
+        return mean_ref_entropy
 
     def vocab_usage(self):
 
@@ -320,23 +353,32 @@ class BaseGame:
         words, topics = self.get_words_from_speakers(speakers, contexts)
 
         self.set_words_for_hearers(hearers, contexts, words, topics)
+        self.prune_memory()
 
-        if (i + 1) % self.prune_step == 0:
-            self.prune_memory()
-
-    def play(self, rounds: int = 1, tqdm_desc: str = "Playing rounds") -> None:
+    def play(
+            self, rounds: int = 1, 
+            tqdm_desc: str = "Playing rounds", 
+            disable_tqdm: bool = False, 
+            snapshot_state=None, 
+            snap_name = "",
+            calc_stats: bool = True
+             ) -> None:
 
         self.stats = torch.zeros((4, rounds, self.game_instances), dtype=torch.float32)
 
-        progress = tqdm.tqdm(range(rounds), desc=tqdm_desc, position=3)
+        progress = tqdm.tqdm(range(rounds), desc=tqdm_desc, position=3, disable=disable_tqdm)
         for i in progress:
             self.step(i)
 
-            self.stats[0, i] = self.success_rate()
-            self.stats[1, i] = self.coherence()
-            self.stats[2, i] = self.vocab_usage().float()
-            self.stats[3, i] = self.count_polysems().float()
-            # # --- IGNORE ---
+            if snapshot_state is not None and i in snapshot_state:
+                state_copy = self.state.clone().cpu().numpy()
+                np.save(f"data/{snap_name}_state_step_{i}.npy", state_copy)
+            if calc_stats:
+                self.stats[0, i] = self.success_rate()
+                self.stats[1, i] = self.coherence()
+                self.stats[2, i] = self.vocab_usage().float()
+                self.stats[3, i] = self.global_reference_entropy().float()
+                # # --- IGNORE ---
 
             # progress.set_postfix(
             #     {
