@@ -87,6 +87,7 @@ def baseline(path, title_prefix, label_suffix, folder, log_plot=True):
           "\n Median", np.median(time_dist),
           "\n Skewness", scipy.stats.skew(time_dist),
           "\n Kurtosis", scipy.stats.kurtosis(time_dist),
+          "\n Last value", mean[-1],
           "\n","="*15
           )  
     sns.histplot(time_dist, kde=False)
@@ -122,6 +123,7 @@ def baseline(path, title_prefix, label_suffix, folder, log_plot=True):
           "\n Median", np.median(time_dist),
           "\n Skewness", scipy.stats.skew(time_dist),
           "\n Kurtosis", scipy.stats.kurtosis(time_dist),
+          "\n Last value", mean[-1],
           "\n","="*15
           )  
 
@@ -136,6 +138,15 @@ def baseline(path, title_prefix, label_suffix, folder, log_plot=True):
 
     plt.figure(figsize=(10, 6))
     mean, lo, hi = mean_q(data_1_0[2])
+
+    print(mean.max())
+
+    time_dist = data_1_0[2].T.argmax(axis=1)
+    mask = time_dist != 0
+    time_dist = time_dist[mask]
+    print(time_dist.mean())
+
+
     sns.lineplot(x=x, y=mean)
     plt.fill_between(x, lo, hi, alpha=0.3, label=" 99% przedział tolerancji")
     plt.title('Średni rozmiar słownika w czasie - Parametry Bazowe')
@@ -333,6 +344,30 @@ def power_law():
     (a, b) = np.polyfit(np.log(population_sizes), np.log(y), 1)
     print(f'Fit power law: exponent={a}, coefficient={np.exp(b)}')
 
+def entropy_law():
+    data = np.load('data/base_game_vocab_size_base.npy')
+    y = data[:, 3].mean(axis=-1)[:, -1]
+    vocab_sizes = [2**4, 2**6, 2**8, 2**10, 2**12]
+    (a, b, c) = np.polyfit(np.log(vocab_sizes), np.log(y), 2)
+
+    curve = lambda x, a, b: a + b/x
+
+    (a,b), pcov = scipy.optimize.curve_fit(curve, vocab_sizes, y)
+
+
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(vocab_sizes, y, label='Dane')
+    plt.plot(vocab_sizes, curve(np.array(vocab_sizes), a, b), '--', label=f'Dopasowanie: y={a:.2f} + {b:.2f}/x')
+    plt.xlabel('Rozmiar Słownika')
+    plt.ylabel('Średnia Entropia Referencyjna')
+    plt.title('Entropia referencyjna w zależności od rozmiaru słownika')
+    plt.legend()
+    plt.savefig('plots/classic/entropy_law_vocab_size.png')
+    plt.close()
+
+    # print(f'Fit entropy law: exponent={a}, coefficient={np.exp(b)}')
+
 
 
 def clusters():
@@ -440,12 +475,12 @@ obj_conf = np.linspace(0.01, 0.1, 5)
 bit_flip_prob_w_obj = np.linspace(0.01, 0.1, 5)
 
 
-baseline(
-    'data/base_game_monte_carlo_stats.npy',
-    'Parametry Bazowe',
-    'baseline',
-    'classic/baseline'
-)
+# baseline(
+#     'data/base_game_monte_carlo_stats.npy',
+#     'Parametry Bazowe',
+#     'baseline',
+#     'classic/baseline'
+# )
 
 # gen('data/base_game_population_size_base.npy',
 #     'Rozmiar Populacji',
@@ -497,6 +532,8 @@ baseline(
 # )
 
 # power_law()
+entropy_law()
+
 
 # steps = [0, 10, 100, 1000, 10000, 100000, 500000, 999999]
 

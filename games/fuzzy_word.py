@@ -40,34 +40,7 @@ class FuzzyWordGame(BaseGame):
         flip_mask = 1 << bit_pos
         return words ^ flip_mask
 
-    def get_words_from_speakers(self, speakers, contexts) -> tuple[torch.Tensor, torch.Tensor]:
-
-        objects_from_context = self.choose_object_from_context(contexts)
-
-        has_name_for_object = (
-            self.state[self.instance_ids, speakers, objects_from_context, :, 1].sum(-1)
-            > 0
-        )
-
-        if (~has_name_for_object).any():
-            n_words = (~has_name_for_object).sum().item()
-            words = self.gen_words(n_words)
-
-            idx_i = self.instance_ids[~has_name_for_object]
-            idx_s = speakers[~has_name_for_object]
-            idx_o = objects_from_context[~has_name_for_object]
-
-            self.state[idx_i, idx_s, idx_o, 0, 0] = words
-            self.state[idx_i, idx_s, idx_o, 0, 1] = 1
-
-    
-        memory_idx = self.state[
-            self.instance_ids, speakers, objects_from_context, :, 1
-        ].argmax(-1)
-
-        words = self.state[self.instance_ids, speakers, objects_from_context, memory_idx, 0]
-
-        # Apply random bit flip with probability flip_prob
+    def communication_channel(self, words):
         if self.flip_prob > 0.0:
             flip_mask = torch.rand(words.shape[0], device=self.device) < self.flip_prob
 
@@ -76,6 +49,3 @@ class FuzzyWordGame(BaseGame):
 
                 words = words.clone()
                 words[flip_mask] = flipped.to(words.dtype)
-
-        return words, objects_from_context
-    

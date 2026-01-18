@@ -129,11 +129,21 @@ class BaseGame:
         memory_idx = torch.multinomial(is_max, num_samples=1).squeeze(-1)
 
         return (
-            self.state[
+            self.communication_channel(self.state[
                 self.instance_ids, speakers, objects_from_context, memory_idx, 0
-            ],
+            ]),
             objects_from_context,
         )
+    
+    def communication_channel(self, words):
+        # identity channel
+        return words
+    
+    def perception_channel(
+        self, found_per_hearer, hearers, contexts, best_object_idx, best_memory_idx
+    ):
+        return best_object_idx, best_memory_idx
+     
 
     def set_words_for_hearers(self, hearers, contexts, words, topics) -> None:
         """
@@ -220,8 +230,8 @@ class BaseGame:
 
             # Flatten (objects, memory) -> find best (object, memory) combo per hearer
             flat_counts = match_counts.view(
-    match_counts.size(0), -1
-)  # (n_hearers, objects*memory)
+                match_counts.size(0), -1
+            )  # (n_hearers, objects*memory)
             max_flat_counts = flat_counts.max(dim=-1, keepdim=True).values
             is_max_flat = (flat_counts == max_flat_counts).float()
             best_flat_idx = torch.multinomial(is_max_flat, num_samples=1).squeeze(-1)  # (n_hearers,)
@@ -230,6 +240,10 @@ class BaseGame:
             # Convert flat index back to (object_idx, memory_idx)
             best_object_idx = best_flat_idx // self.memory
             best_memory_idx = best_flat_idx % self.memory
+
+            best_object_idx, best_memory_idx = self.perception_channel(
+                found_per_hearer, hearers, contexts, best_object_idx, best_memory_idx
+            )
 
             self.successful_communications = (topics == best_object_idx).to(
                 torch.float32
@@ -340,7 +354,7 @@ class BaseGame:
 
     def vocab_usage(self):
 
-        usage = (self.state[:, :, :, :, 0] > 0).float().sum(-1)
+        usage = (self.state[:, :, :, :, 0] > 0).float().sum(-1) # all used words per object
 
         return usage.mean((1, 2))
 
