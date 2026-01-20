@@ -144,7 +144,6 @@ class BaseGame:
     ):
         return best_object_idx, best_memory_idx
      
-
     def set_words_for_hearers(self, hearers, contexts, words, topics) -> None:
         """
         Hearer can:
@@ -241,9 +240,9 @@ class BaseGame:
             best_object_idx = best_flat_idx // self.memory
             best_memory_idx = best_flat_idx % self.memory
 
-            best_object_idx, best_memory_idx = self.perception_channel(
-                found_per_hearer, hearers, contexts, best_object_idx, best_memory_idx
-            )
+            # best_object_idx, best_memory_idx = self.perception_channel(
+            #     found_per_hearer, hearers, contexts, best_object_idx, best_memory_idx
+            # )
 
             self.successful_communications = (topics == best_object_idx).to(
                 torch.float32

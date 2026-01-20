@@ -49,3 +49,4 @@ class FuzzyWordGame(BaseGame):
 
                 words = words.clone()
                 words[flip_mask] = flipped.to(words.dtype)
+        return words

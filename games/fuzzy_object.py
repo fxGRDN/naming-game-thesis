@@ -76,14 +76,37 @@ class FuzzyObjectGame(BaseGame):
             subset_obj[target_idx] = random_objects[has_slot]
             subset_mem[target_idx] = first_empty[has_slot]
 
-            # write back to full tensors
-            best_object_idx = best_object_idx.clone()
-            best_memory_idx = best_memory_idx.clone()
-            best_object_idx[found_idx] = subset_obj
-            best_memory_idx[found_idx] = subset_mem
+        # Handle cases where no empty slot is available - replace weakest
+        no_slot = ~has_slot
+        if no_slot.any():
+            confused_idx = confuse_mask.nonzero(as_tuple=False).squeeze(1)
+            no_slot_target_idx = confused_idx[no_slot]
+            no_slot_random_objects = random_objects[no_slot]
 
-        
-        
+            # Get counts for the random objects' memory slots
+            counts = self.state[
+                self.instance_ids[found_idx[confuse_mask][no_slot]],
+                hearers[found_idx[confuse_mask][no_slot]],
+                no_slot_random_objects,
+                :,
+                1,
+            ]  # (n_no_slot, memory)
 
+            # Find minimum count per hearer
+            min_counts = counts.min(dim=-1, keepdim=True).values  # (n_no_slot, 1)
+            is_min = counts == min_counts  # (n_no_slot, memory)
+
+            # Randomly select among tied minimums
+            random_weights = torch.rand_like(counts.float()) * is_min.float()
+            weakest_idx = random_weights.argmax(dim=-1)  # (n_no_slot,)
+
+            subset_obj[no_slot_target_idx] = no_slot_random_objects
+            subset_mem[no_slot_target_idx] = weakest_idx
+
+        # write back to full tensors
+        best_object_idx = best_object_idx.clone()
+        best_memory_idx = best_memory_idx.clone()
+        best_object_idx[found_idx] = subset_obj
+        best_memory_idx[found_idx] = subset_mem
 
         return best_object_idx, best_memory_idx

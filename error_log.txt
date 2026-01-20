@@ -1,13 +1,20 @@
-An error occurred: [Errno 2] No such file or directory: 'data/word_object_game/monte_carlo_stats_part_0.npy'
+An error occurred: 'NoneType' object is not subscriptable
 
 Traceback:
 Traceback (most recent call last):
-  File "/home/studenci/repo/naming-game-thesis/main.py", line 389, in <module>
-    word_object_baseline()
-    ~~~~~~~~~~~~~~~~~~~~^^
-  File "/home/studenci/repo/naming-game-thesis/main.py", line 353, in word_object_baseline
-    np.save(f"data/word_object_game/monte_carlo_stats_part_{i}.npy", stats)
-    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/studenci/repo/naming-game-thesis/.venv/lib/python3.14/site-packages/numpy/lib/_npyio_impl.py", line 580, in save
-    file_ctx = open(file, "wb")
-FileNotFoundError: [Errno 2] No such file or directory: 'data/word_object_game/monte_carlo_stats_part_0.npy'
+  File "/home/studenci/repo/naming-game-thesis/main.py", line 382, in <module>
+    word_baseline()
+    ~~~~~~~~~~~~~^^
+  File "/home/studenci/repo/naming-game-thesis/main.py", line 295, in word_baseline
+    game.play(game_steps, disable_tqdm=True)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 384, in play
+    self.step(i)
+    ~~~~~~~~~^^^
+  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 368, in step
+    self.set_words_for_hearers(hearers, contexts, words, topics)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/studenci/repo/naming-game-thesis/games/base_game.py", line 172, in set_words_for_hearers
+    hearer_words_in_context == words[:, None, None]
+                               ~~~~~^^^^^^^^^^^^^^^
+TypeError: 'NoneType' object is not subscriptable

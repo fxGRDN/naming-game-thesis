@@ -152,7 +152,6 @@ def baseline():
 
     stats = game.stats.cpu().numpy()
     np.save("data/base_game_monte_carlo_stats.npy", stats)
-    np.save("data/base_game_final_state.npy", game.state.cpu().numpy())
 
 def population_size_base():
     device: torch.device = get_default_device()
@@ -278,34 +277,31 @@ def context_window_size_base():
 def word_baseline():
     device: torch.device = get_default_device()
     iters = 1000
-    game_steps = 50000
-    bit_flip_prob = [0.1, 0.3, 0.5, 0.7, 0.9]
-    stats = np.zeros((len(bit_flip_prob), 4, game_steps, iters))
+    game_steps = 100000
+    bit_flip_prob = np.linspace(0, 1, 100)
 
-    for i, flip_prob in enumerate(bit_flip_prob):
+    for i, p in enumerate(bit_flip_prob):
         game = FuzzyWordGame(
                 game_instances=iters,
                 agents=DEFAULT_POPULATION_SIZE, 
                 objects=DEFAULT_OBJECTS_SIZE, 
                 memory=DEFAULT_MEMORY_SIZE, 
                 device=device, 
-                flip_prob=flip_prob,
+                flip_prob=p,
                 vocab_size=DEFAULT_VOCAB_SIZE, 
                 context_size=DEFAULT_CONTEXT_SIZE,
             )
-        game.play(game_steps, tqdm_desc="Word Simulation")
+        game.play(game_steps, disable_tqdm=True)
 
-        stats[i] = game.stats.cpu().numpy()
-    np.save("data/word_game_monte_carlo_stats.npy", stats)
+        np.save(f"data/word_phase/part_{i}.npy", game.stats.cpu().numpy())
 
 def object_baseline():
     device: torch.device = get_default_device()
     iters = 1000
-    game_steps = 50000
-    obj_conf = np.linspace(0.01, 0.1, 5)
-    stats = np.zeros((len(obj_conf), 4, game_steps, iters))
+    game_steps = 100000
+    obj_conf = np.linspace(0, 1, 100)
 
-    for i, conf in enumerate(obj_conf):
+    for i, conf in tqdm.tqdm(enumerate(obj_conf)):
         game = FuzzyWordGame(
                 game_instances=iters,
                 agents=DEFAULT_POPULATION_SIZE, 
@@ -316,18 +312,16 @@ def object_baseline():
                 vocab_size=DEFAULT_VOCAB_SIZE, 
                 context_size=DEFAULT_CONTEXT_SIZE,
             )
-        game.play(game_steps, tqdm_desc="Object Simulation")
-
-        stats[i] = game.stats.cpu().numpy()
-    np.save("data/object_game_monte_carlo_stats.npy", stats)
+        game.play(game_steps, tqdm_desc="Object Simulation", disable_tqdm=True)
+        np.save(f"data/object_phase/part_{i}.npy", game.stats.cpu().numpy())
 
 
 def word_object_baseline():
     device: torch.device = get_default_device()
     iters = 1000
     game_steps = 50000
-    obj_conf = np.linspace(0.01, 0.3, 25)
-    bit_flip_prob = np.linspace(0.01, 0.3, 25)
+    obj_conf = np.linspace(0.31, 0.6, 25)
+    bit_flip_prob = np.linspace(0.31, 0.6, 25)
 
     os.makedirs("data/word_object_game", exist_ok=True)
 
@@ -350,8 +344,8 @@ def word_object_baseline():
             game.play(game_steps, tqdm_desc="Word-Object Simulation", disable_tqdm=True)
 
             stats[j] = game.stats.cpu().numpy()
-        print(f"Saved part {i+1} of {len(obj_conf)}, time taken: {(time.time() - time_start)/60:.2f} minutes")
-        np.save(f"data/word_object_game/monte_carlo_stats_part_{i}.npy", stats)
+        print(f"Saved part {i+25} of {len(obj_conf)}, time taken: {(time.time() - time_start)/60:.2f} minutes")
+        np.save(f"data/word_object_game/monte_carlo_stats_part_{i+25}.npy", stats)
 
 
 
@@ -383,7 +377,7 @@ if __name__ == "__main__":
         # context_window_size_base()
         # word_baseline()
         # object_baseline()
-        # word_object_baseline()
+        word_object_baseline()
         # clusters()
     except Exception as e:
         with open("error_log.txt", "w") as f:
