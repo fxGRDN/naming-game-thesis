@@ -8,21 +8,16 @@ def consensus_threshold():
     y = np.zeros((len(bit_flip_prob), 4, 100000))
     try:
         for i, p in enumerate(bit_flip_prob):
-            data = np.load(f"data/word_phase/part_{i}.npy")
+            data = np.load(f"data/object_phase/part_{i}.npy")
             y[i] = data.mean(axis=-1)
             del data
 
     except FileNotFoundError:
         pass
 
-    # plt.scatter(bit_flip_prob[::-1], y[::-1], s=10)
-    # plt.xlabel("Szansa Pomylenia Słowa")
-    # plt.ylabel("Średni Konsensusu")
-    # plt.title("Próg Konsensusu w Grze Słowo-Obiekt")
-    # plt.savefig("plots/word_game/consensus_threshold.png")
-    # plt.close()
 
-    os.makedirs("plots/word_game", exist_ok=True)
+
+    os.makedirs("plots/object_game", exist_ok=True)
     sample_idx = np.arange(y.shape[2])
 
     Y, X = np.meshgrid(bit_flip_prob, sample_idx)
@@ -44,7 +39,7 @@ def consensus_threshold():
             ax.invert_yaxis()
             ax.invert_xaxis()
 
-        ax.set_ylabel("Szansa Pomylenia Słowa")
+        ax.set_ylabel("Szansa Pomylenia Obiektu")
         ax.set_xlabel("Indeks Próby")
         ax.set_zlabel("Wartość")
 
@@ -57,16 +52,14 @@ def consensus_threshold():
             extent=(bit_flip_prob.min(), bit_flip_prob.max(), sample_idx.min(), sample_idx.max()),
             cmap="viridis"
         )
-        axhm.set_xlabel("Szansa Pomylenia Słowa")
+        axhm.set_xlabel("Szansa Pomylenia Obiektu")
         axhm.set_ylabel("Indeks Próby")
         fig.colorbar(im, ax=axhm, shrink=0.8)
 
         fig.suptitle(stat_names[stat])
         plt.tight_layout()
-        plt.savefig(f"plots/word_game/consensus_surface_stat_{stat}.png", dpi=200)
+        plt.savefig(f"plots/object_game/consensus_surface_stat_{stat}.png", dpi=200)
         plt.close(fig)
-
-
 
 
 consensus_threshold()

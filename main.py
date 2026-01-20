@@ -302,13 +302,13 @@ def object_baseline():
     obj_conf = np.linspace(0, 1, 100)
 
     for i, conf in tqdm.tqdm(enumerate(obj_conf)):
-        game = FuzzyWordGame(
+        game = FuzzyObjectGame(
                 game_instances=iters,
                 agents=DEFAULT_POPULATION_SIZE, 
                 objects=DEFAULT_OBJECTS_SIZE, 
                 memory=DEFAULT_MEMORY_SIZE, 
                 device=device, 
-                flip_prob=conf,
+                confusion_prob=conf,
                 vocab_size=DEFAULT_VOCAB_SIZE, 
                 context_size=DEFAULT_CONTEXT_SIZE,
             )
@@ -369,15 +369,15 @@ def clusters():
 if __name__ == "__main__":
     try:
         # test_base_game()
-        baseline()
+        # baseline()
         # population_size_base()
         # object_size_base()
         # memory_size_base()
         # vocab_size_base()
         # context_window_size_base()
         # word_baseline()
-        # object_baseline()
-        word_object_baseline()
+        object_baseline()
+        # word_object_baseline()
         # clusters()
     except Exception as e:
         with open("error_log.txt", "w") as f:
