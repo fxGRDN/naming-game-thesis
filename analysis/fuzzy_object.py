@@ -27,6 +27,9 @@ def consensus_threshold():
     for stat in range(4):
         Z = y[:, stat, :].T  # shape: (samples, probabilities)
 
+        if stat == 0:  # Success Rate
+            print(Z[10000:].mean(axis=1)[30:50])
+
         fig = plt.figure(figsize=(12, 5))
         ax = fig.add_subplot(1, 2, 1, projection="3d")
         axhm = fig.add_subplot(1, 2, 2)

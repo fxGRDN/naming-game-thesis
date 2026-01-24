@@ -321,8 +321,8 @@ def word_object_baseline():
     device: torch.device = get_default_device()
     iters = 1000
     game_steps = 50000
-    obj_conf = np.linspace(0, 1, 30)
-    bit_flip_prob = np.linspace(0, 1, 30)
+    obj_conf = np.linspace(0, 0.7, 25)
+    bit_flip_prob = np.linspace(0, 0.7, 25)
 
     os.makedirs("data/word_object_game", exist_ok=True)
 
