@@ -11,9 +11,8 @@ class BaseGame:
         agents=100,
         objects=100,
         memory=5,
-        vocab_size=2**15,  # 2 bytes signed, change to uint if using cuda
-        prune_step=50,
-        context_size=(1, 3),
+        vocab_size=2**8,  # 2 bytes signed, change to uint if using cuda
+        context_size=(2, 3),
         device=torch.device("cpu"),
     ) -> None:
 
@@ -21,7 +20,6 @@ class BaseGame:
         self.objects = objects
         self.memory = memory
         self.vocab_size = vocab_size
-        self.prune_step = prune_step
         self.game_instances = game_instances
         self.context_size = context_size
         self.device = device
@@ -139,10 +137,15 @@ class BaseGame:
         # identity channel
         return words
     
-    def perception_channel(
-        self, found_per_hearer, hearers, contexts, best_object_idx, best_memory_idx
-    ):
-        return best_object_idx, best_memory_idx
+
+    
+    def perception_channel(self, flat_counts: torch.Tensor) -> torch.Tensor:
+        """
+        Identity function in base game. Override in subclass to implement
+        perception obstruction (e.g., remove best match with probability p).
+        """
+        return flat_counts
+
      
     def set_words_for_hearers(self, hearers, contexts, words, topics) -> None:
         """
@@ -157,21 +160,17 @@ class BaseGame:
             self.successful_communications
         )
 
+        best_object_idx, best_memory_idx, found_per_hearer = self.find_best_object(
+            hearers, words, contexts
+        )
+
         objects_from_context = self.choose_object_from_context(contexts)
+        objects_from_context[found_per_hearer] = best_object_idx[found_per_hearer]
+        
+        self.successful_communications = (topics == objects_from_context).to(
+        torch.float32
+    )
 
-        # 1. check if memory holds the word of objects in context
-        hearer_words = self.state[self.instance_ids, hearers, :, :, 0]
-
-        # mask words not in context
-        hearer_words_in_context = hearer_words * (contexts > 0).unsqueeze(-1)
-
-        # words: (n_hearers,)
-        # hearer_words_in_context: (n_hearers, objects, memory)
-
-        matches = (
-            hearer_words_in_context == words[:, None, None]
-        )  # (n_hearers, objects, memory) bool
-        found_per_hearer = matches.any(dim=(1, 2))  # (n_hearers,) bool
 
         # 2. and 3.
         if (~found_per_hearer).any():
@@ -218,36 +217,8 @@ class BaseGame:
                     dim=-1,
                 )
 
-        # 1. find memory idx and reinforce
+        # 1. reinforce
         if found_per_hearer.any():
-
-            # Get counts for matching positions, zero elsewhere
-            hearer_counts = self.state[
-                self.instance_ids, hearers, :, :, 1
-            ]  # (n_hearers, objects, memory)
-            match_counts = hearer_counts * matches  # (n_hearers, objects, memory)
-
-            # Flatten (objects, memory) -> find best (object, memory) combo per hearer
-            flat_counts = match_counts.view(
-                match_counts.size(0), -1
-            )  # (n_hearers, objects*memory)
-            max_flat_counts = flat_counts.max(dim=-1, keepdim=True).values
-            is_max_flat = (flat_counts == max_flat_counts).float()
-            best_flat_idx = torch.multinomial(is_max_flat, num_samples=1).squeeze(-1)  # (n_hearers,)
-
-
-            # Convert flat index back to (object_idx, memory_idx)
-            best_object_idx = best_flat_idx // self.memory
-            best_memory_idx = best_flat_idx % self.memory
-
-            # best_object_idx, best_memory_idx = self.perception_channel(
-            #     found_per_hearer, hearers, contexts, best_object_idx, best_memory_idx
-            # )
-
-            self.successful_communications = (topics == best_object_idx).to(
-                torch.float32
-            )
-
             # Damp everything by -1 (clamped at 0)
             self.state[
                 self.instance_ids[found_per_hearer],
@@ -267,7 +238,6 @@ class BaseGame:
                 min=0,
             )
 
-            # Reinforce: increment the best match
             self.state[
                 self.instance_ids[found_per_hearer],
                 hearers[found_per_hearer],
@@ -285,6 +255,57 @@ class BaseGame:
                 + 2,
                 max=100,
             )
+
+  # ...existing code...
+    def find_best_object(
+        self, hearers, words, contexts, apply_obstruction: bool = False
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Given hearers, words and contexts, find best object in context for each hearer.
+        If apply_obstruction=True, the best match may be removed with some probability,
+        forcing selection of the next-best weighted match.
+        """
+        # all words in hearers' memory
+        hearer_words = self.state[self.instance_ids, hearers, :, :, 0]
+
+        # take words only for objects in context
+        hearer_words_in_context = hearer_words * (contexts > 0).unsqueeze(-1)
+
+        # positions where word is matched
+        matches = (
+            hearer_words_in_context == words[:, None, None]
+        )  # (n_hearers, objects, memory) bool
+
+        # positive matches per hearer
+        hearer_counts = self.state[
+            self.instance_ids, hearers, :, :, 1
+        ]  # (n_hearers, objects, memory)
+
+        # mask counts where words match
+        match_counts = hearer_counts * matches  # (n_hearers, objects, memory)
+
+        # flatten (objects, memory) -> find best (object, memory) combo per hearer
+        flat_counts = match_counts.view(match_counts.size(0), -1).float()
+
+        # apply obstruction 
+        flat_counts = self.perception_channel(flat_counts)
+
+        # take the max count(s)
+        max_flat_counts = flat_counts.max(dim=-1, keepdim=True).values
+        # check if any matches were found
+        is_max_flat = (flat_counts == max_flat_counts).float()
+
+        # choose one of the best matches randomly
+        best_flat_idx = torch.multinomial(is_max_flat, num_samples=1).squeeze(-1)
+
+        # convert flat index back to (object_idx, memory_idx)
+        best_object_idx = best_flat_idx // self.memory
+        best_memory_idx = best_flat_idx % self.memory
+
+        found_per_hearer = max_flat_counts.squeeze(-1) > 0
+
+        return best_object_idx, best_memory_idx, found_per_hearer
+
 
     def prune_memory(self):
 
@@ -328,6 +349,7 @@ class BaseGame:
 
         G, N, M = self.state.shape[0], self.agents, self.objects
         V = self.vocab_size
+
         best_idx = self.state[..., 1].argmax(dim=-1, keepdim=True)
         top_words = self.state[..., 0].gather(-1, best_idx).squeeze(-1).long()
 
@@ -366,12 +388,14 @@ class BaseGame:
         words, topics = self.get_words_from_speakers(speakers, contexts)
 
         self.set_words_for_hearers(hearers, contexts, words, topics)
+
         self.prune_memory()
 
     def play(
             self, rounds: int = 1, 
             tqdm_desc: str = "Playing rounds", 
             disable_tqdm: bool = False, 
+            tqdm_position: int = 1,
             snapshot_state=None, 
             snap_name = "",
             calc_stats: bool = True
@@ -379,7 +403,7 @@ class BaseGame:
 
         self.stats = torch.zeros((4, rounds, self.game_instances), dtype=torch.float32)
 
-        progress = tqdm.tqdm(range(rounds), desc=tqdm_desc, position=3, disable=disable_tqdm)
+        progress = tqdm.tqdm(range(rounds), desc=tqdm_desc, position=tqdm_position, disable=disable_tqdm)
         for i in progress:
             self.step(i)
 
@@ -391,59 +415,10 @@ class BaseGame:
                 self.stats[1, i] = self.coherence()
                 self.stats[2, i] = self.vocab_usage().float()
                 self.stats[3, i] = self.global_reference_entropy().float()
-                # # --- IGNORE ---
 
-            # progress.set_postfix(
-            #     {
-            #         "Vocab Stability": f"{self.stats[1, i].item():.3f}",
-            #         "memory_usage": f"{torch.cuda.memory_stats(device=self.device)['allocated_bytes.all.current']/8192} MB",
-            #     }
-            # )
-
-    def plot_stats(self) -> None:
-        rounds = self.stats.shape[1]
-        x = torch.arange(rounds).cpu().numpy()
-
-        def mean_q(metric_idx):
-            data = self.stats[metric_idx].cpu().numpy()  # shape (steps, iters)
-            mean = data.mean(axis=-1)
-            lo = np.percentile(data, 0.5, axis=1)
-            hi = np.percentile(data, 99.5, axis=1)
-            return mean, lo, hi
-
-        plt.figure(figsize=(12, 12))
-
-        plt.subplot(2, 2, 1)
-        mean, lo, hi = mean_q(0)
-        plt.plot(x, mean, color="C0")
-        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
-        plt.title("Success Rate")
-        plt.xlabel("Rounds")
-        plt.ylim(0, 1.2)
-
-        plt.subplot(2, 2, 2)
-        mean, lo, hi = mean_q(1)
-        plt.plot(x, mean, color="C1")
-        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
-        plt.fill_between(x, lo, hi, color="C1", alpha=0.2)
-        plt.title("Coherence")
-        plt.xlabel("Rounds")
-        plt.ylim(0, 1.2)
-
-        plt.subplot(2, 2, 3)
-        mean, lo, hi = mean_q(2)
-        plt.plot(x, mean, color="C2")
-        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
-        plt.fill_between(x, lo, hi, color="C2", alpha=0.2)
-        plt.title("Vocab Usage")
-        plt.xlabel("Rounds")
-
-        plt.subplot(2, 2, 4)
-        mean, lo, hi = mean_q(3)
-        plt.fill_between(x, lo, hi, color="C3", alpha=0.2)
-        plt.hlines(1.0, 0, rounds, colors="gray", linestyles="dashed", alpha=0.5)
-        plt.plot(x, mean, color="C3")
-        plt.title("Word per Object Ratio")
-        plt.xlabel("Rounds")
-
-        plt.savefig(f"plots/{self.fig_prefix}_stats.png")
+            progress.set_postfix(
+                {
+                    "Vocab Stability": f"{self.stats[1, i].mean().item():.3f}",
+                    "memory_usage": f"{torch.cuda.memory_stats(device=self.device)['allocated_bytes.all.current']/(1024**2):.2f} MB",
+                }
+            )

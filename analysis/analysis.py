@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import networkx as nx
 import sklearn
+from baseline import baseline_multiple
 sns.set_theme(style="whitegrid")
 
 def gen_word_object(
@@ -178,7 +179,7 @@ object_sizes = [8, 16, 32, 64, 128, 256]
 memory_sizes = [1, 2, 4, 8, 16]
 vocab_sizes = [2**4, 2**6, 2**8, 2**10, 2**12]
 context_sizes = ["(2, 2)", "(2, 3)", "(3, 4)", "(4, 5)"]
-bit_flip_prob = [0.1, 0.3, 0.5, 0.7, 0.9]
+bit_flip_prob = np.linspace(0, 1, 5)
 obj_conf = np.linspace(0.01, 0.1, 5)
 bit_flip_prob_w_obj = np.linspace(0.01, 0.1, 5)
 
@@ -220,7 +221,14 @@ bit_flip_prob_w_obj = np.linspace(0.01, 0.1, 5)
 #     )
 
 
-gen('data/word_game_monte_carlo_stats.npy',
+data = np.zeros((5, 4, 100000, 1000))
+
+for i, p in enumerate(np.linspace(0, 1, 5)):
+    part_data = np.load(f'data/object_phase/part_{i}.npy')
+    data[i] = part_data
+
+
+baseline_multiple(data,
     'Szansa Pomylenia Słowa',
     'bit_flip_prob',
     bit_flip_prob,

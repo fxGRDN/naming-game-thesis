@@ -15,12 +15,7 @@ def consensus_threshold():
     except FileNotFoundError:
         pass
 
-    # plt.scatter(bit_flip_prob[::-1], y[::-1], s=10)
-    # plt.xlabel("Szansa Pomylenia Słowa")
-    # plt.ylabel("Średni Konsensusu")
-    # plt.title("Próg Konsensusu w Grze Słowo-Obiekt")
-    # plt.savefig("plots/word_game/consensus_threshold.png")
-    # plt.close()
+
 
     os.makedirs("plots/word_game", exist_ok=True)
     sample_idx = np.arange(y.shape[2])

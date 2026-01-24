@@ -24,10 +24,10 @@ def test_games():
     print(f"Using device: {device}")
 
     # game = BaseGame(
-    #     1000,
-    #     32,
-    #     16,
-    #     memory=50,
+    #     game_instances=1000,
+    #     agents=16,
+    #     objects=16,
+    #     memory=8,
     #     device=device,
     #     context_size=(2, 3),
     # )
@@ -35,18 +35,17 @@ def test_games():
     # game.play(50000)
     # game.plot_stats()
 
-    # fuzzy_object_game = FuzzyObjectGame(
-    #     1000,
-    #     32,
-    #     16,
-    #     memory=50,
-    #     device=device,
-    #     confusion_prob=0.1,
-    #     context_size=(2, 3),
-    # )
+    fuzzy_object_game = FuzzyObjectGame(
+        1000,
+        16,
+        16,
+        memory=8,
+        device=device,
+        confusion_prob=0.8,
+        context_size=(2, 3),
+    )
 
-    # fuzzy_object_game.play(50000)
-    # fuzzy_object_game.plot_stats()
+    fuzzy_object_game.play(50000)
 
     # fuzzy_word_game = FuzzyWordGame(
     #     1000,
@@ -301,7 +300,9 @@ def object_baseline():
     game_steps = 100000
     obj_conf = np.linspace(0, 1, 100)
 
-    for i, conf in tqdm.tqdm(enumerate(obj_conf)):
+    os.makedirs("data/object_phase", exist_ok=True)
+
+    for i, conf in tqdm.tqdm(enumerate(obj_conf), desc="Object Baseline Simulation", total=len(obj_conf)):
         game = FuzzyObjectGame(
                 game_instances=iters,
                 agents=DEFAULT_POPULATION_SIZE, 
@@ -312,7 +313,7 @@ def object_baseline():
                 vocab_size=DEFAULT_VOCAB_SIZE, 
                 context_size=DEFAULT_CONTEXT_SIZE,
             )
-        game.play(game_steps, tqdm_desc="Object Simulation", disable_tqdm=True)
+        game.play(game_steps, tqdm_desc=f"Object Simulation for p={conf}", disable_tqdm=True)
         np.save(f"data/object_phase/part_{i}.npy", game.stats.cpu().numpy())
 
 
@@ -320,8 +321,8 @@ def word_object_baseline():
     device: torch.device = get_default_device()
     iters = 1000
     game_steps = 50000
-    obj_conf = np.linspace(0.31, 0.6, 25)
-    bit_flip_prob = np.linspace(0.31, 0.6, 25)
+    obj_conf = np.linspace(0, 1, 30)
+    bit_flip_prob = np.linspace(0, 1, 30)
 
     os.makedirs("data/word_object_game", exist_ok=True)
 
@@ -368,15 +369,15 @@ def clusters():
 
 if __name__ == "__main__":
     try:
-        # test_base_game()
+        # test_games()
         # baseline()
         # population_size_base()
         # object_size_base()
         # memory_size_base()
         # vocab_size_base()
         # context_window_size_base()
-        # word_baseline()
-        object_baseline()
+        word_baseline()
+        # object_baseline()
         # word_object_baseline()
         # clusters()
     except Exception as e:

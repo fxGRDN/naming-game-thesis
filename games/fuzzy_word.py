@@ -9,7 +9,7 @@ class FuzzyWordGame(BaseGame):
         agents=100,
         objects=100,
         memory=5,
-        vocab_size=2**15,
+        vocab_size=2**8,
         prune_step=100,
         context_size=(2, 3),
         flip_prob=0.0,
@@ -21,7 +21,6 @@ class FuzzyWordGame(BaseGame):
             objects=objects,
             memory=memory,
             vocab_size=vocab_size,
-            prune_step=prune_step,
             device=device,
             context_size=context_size,
         )
