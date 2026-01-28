@@ -10,7 +10,6 @@ class FuzzyObjectGame(BaseGame):
         objects=100,
         memory=5,
         vocab_size=2**8,
-        prune_step=50,
         context_size=(2, 3),
         confusion_prob=0.0,
         device=torch.device("cpu"),
@@ -25,28 +24,43 @@ class FuzzyObjectGame(BaseGame):
             device=device,
         )
         self.fig_prefix = "fuzzy_object_game"
-        if not (0.0 <= confusion_prob <= 1.0):
+        if not (0.0 <= float(confusion_prob) <= 1.0):
             raise ValueError("confusion_prob must be in [0, 1].")
-        self.confusion_prob = confusion_prob
+        self.confusion_prob = torch.as_tensor(confusion_prob, device=device, dtype=torch.float32)
 
         # obsturct perception channel
 
     def perception_channel(self, flat_counts: torch.Tensor) -> torch.Tensor:
-        """Remove best match with probability obstruct_prob."""
-        if self.confusion_prob <= 0.0:
-            return flat_counts
+        """Remove best match with probability obstruct_prob. Optimized to avoid CPU syncs."""
+        G = flat_counts.size(0)
         
-        obstruct_mask = torch.rand(flat_counts.size(0), device=self.device) < self.confusion_prob
-        if obstruct_mask.any():
-            masked_counts = flat_counts[obstruct_mask]
-            # reshape to (n_masked, objects, memory) and find best object
-            reshaped = masked_counts.view(masked_counts.size(0), -1, self.memory)
-            best_object_idx = reshaped.sum(dim=-1).argmax(dim=-1)
-            # zero out all memory slots for best object
-            flat_counts = flat_counts.clone()
-            reshaped_clone = reshaped.clone()
-            reshaped_clone[torch.arange(reshaped.size(0), device=self.device), best_object_idx, :] = 0.0
-            flat_counts[obstruct_mask] = reshaped_clone.view(masked_counts.size(0), -1)
+        # obstruction mask for all instances
+        obstruct_mask = torch.rand(G, device=self.device) < self.confusion_prob  # (G,)
         
-        return flat_counts
+        # reshape to (G, objects, memory)
+        reshaped = flat_counts.view(G, -1, self.memory)
+        
+        # Find best object per instance (max count across all memory slots)
+        # Get the flat index of the maximum, then extract object index
+        best_flat_idx = reshaped.view(G, -1).argmax(dim=-1)  # (G,)
+        best_object_idx = best_flat_idx // self.memory  # (G,)
+        
+        # Create mask to zero out best object's memory slots
+        # one_hot: (G, objects)
+        obj_mask = torch.nn.functional.one_hot(best_object_idx, num_classes=reshaped.size(1)).bool()  # (G, objects)
+        
+        # Expand to cover memory: (G, objects, memory)
+        zero_mask = obj_mask.unsqueeze(-1).expand(-1, -1, self.memory)
+        
+        # Zero out best object where obstruct_mask is True
+        zeroed = torch.where(zero_mask, torch.zeros_like(reshaped), reshaped)
+        
+        # Apply obstruction conditionally using torch.where
+        result = torch.where(
+            obstruct_mask.unsqueeze(-1).unsqueeze(-1),  # (G, 1, 1)
+            zeroed,
+            reshaped
+        )
+        
+        return result.view(G, -1)
 

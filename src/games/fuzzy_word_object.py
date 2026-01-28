@@ -4,6 +4,7 @@ import torch
 
 
 class FuzzyObjectWordGame(FuzzyObjectGame, FuzzyWordGame):
+    
     def __init__(
         self,
         game_instances: int = 1,
@@ -11,30 +12,24 @@ class FuzzyObjectWordGame(FuzzyObjectGame, FuzzyWordGame):
         objects=100,
         memory=5,
         vocab_size=2**8,
-        prune_step=50,
-        confusion_prob=0.0,  # p
-        flip_prob=0.0,  # q
+        confusion_prob=0.0,
+        flip_prob=0.0,
         context_size: tuple[int, int] = (2, 3),
         device=torch.device("cpu"),
     ) -> None:
-
-        # Call FuzzyObjectGame's init (which calls BaseGame)
-        FuzzyObjectGame.__init__(
-            self,
+        super().__init__(
             game_instances=game_instances,
             agents=agents,
             objects=objects,
             memory=memory,
             vocab_size=vocab_size,
-            prune_step=prune_step,
             confusion_prob=confusion_prob,
-            device=device,
             context_size=context_size,
+            device=device,
         )
-
-        # Set FuzzyWordGame-specific attributes
-        if not (0.0 <= flip_prob <= 1.0):
+        
+        if not (0.0 <= float(flip_prob) <= 1.0):
             raise ValueError("flip_prob must be in [0, 1].")
-        self.flip_prob = flip_prob
+        self.flip_prob = torch.as_tensor(flip_prob, device=device, dtype=torch.float32)
         self.word_bits = (vocab_size - 1).bit_length()
         self.fig_prefix = "fuzzy_object_word_game"

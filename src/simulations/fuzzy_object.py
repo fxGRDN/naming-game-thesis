@@ -1,5 +1,9 @@
 
+import argparse
+import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 import numpy as np
 import tqdm
@@ -9,7 +13,7 @@ from parameters import DefaultParams
 
 
 
-def object_baseline():
+def object_baseline(sampling_freq: int):
     device: torch.device = get_default_device()
     iters = 1000
     game_steps = 100000
@@ -28,5 +32,13 @@ def object_baseline():
                 vocab_size=DefaultParams.VOCAB_SIZE.value, 
                 context_size=DefaultParams.CONTEXT_SIZE.value,
             )
-        game.play(game_steps, tqdm_desc=f"Object Simulation for p={conf}", disable_tqdm=True)
+        game.play(game_steps, disable_tqdm=True, sampling_freq=sampling_freq)
         np.save(f"data/object_phase/part_{i}.npy", game.stats.cpu().numpy())
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-s", "--sampling-freq", type=int, help="Sampling frequency for analysis", default=100)
+    args = parser.parse_args()
+    os.makedirs("data/object_phase", exist_ok=True)
+    object_baseline(args.sampling_freq)

@@ -10,7 +10,6 @@ class FuzzyWordGame(BaseGame):
         objects=100,
         memory=5,
         vocab_size=2**8,
-        prune_step=100,
         context_size=(2, 3),
         flip_prob=0.0,
         device=torch.device("cpu"),
@@ -26,9 +25,9 @@ class FuzzyWordGame(BaseGame):
         )
         self.fig_prefix = "fuzzy_word_game"
 
-        if not (0.0 <= flip_prob <= 1.0):
+        if not (0.0 <= float(flip_prob) <= 1.0):
             raise ValueError("flip_prob must be in [0, 1].")
-        self.flip_prob = flip_prob
+        self.flip_prob = torch.as_tensor(flip_prob, device=device, dtype=torch.float32)
         # Number of bits needed to represent vocab_size
         self.word_bits = (vocab_size - 1).bit_length()
 
@@ -40,12 +39,10 @@ class FuzzyWordGame(BaseGame):
         return words ^ flip_mask
 
     def communication_channel(self, words):
-        if self.flip_prob > 0.0:
-            flip_mask = torch.rand(words.shape[0], device=self.device) < self.flip_prob
-
-            if flip_mask.any():
-                flipped = self.flip_random_bit(words[flip_mask])
-
-                words = words.clone()
-                words[flip_mask] = flipped.to(words.dtype)
-        return words
+        flip_mask = torch.rand(words.shape[0], device=self.device) < self.flip_prob
+        
+        # Compute flipped version for all words (avoids boolean indexing)
+        flipped = self.flip_random_bit(words)
+        
+        # Select flipped or original based on mask
+        return torch.where(flip_mask, flipped.to(words.dtype), words)
