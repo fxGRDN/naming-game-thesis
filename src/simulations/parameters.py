@@ -1,6 +1,9 @@
 from enum import Enum
 import numpy as np
 
+
+# Default simulation parameters
+
 class DefaultParams(Enum):
     POPULATION_SIZE = 16
     OBJECTS_SIZE = 16

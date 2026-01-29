@@ -6,8 +6,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import matplotlib.pyplot as plt
-from utils import success_rate_ma
 from simulations.parameters import metrics_limits
+
+plt.figure(figsize=(6.5, 4))
+plt.rcParams.update({
+    "text.usetex": False,  # Set to True if LaTeX is installed
+    "font.family": "serif",
+})
+
 
 
 def consensus_threshold(sampling_freq=100):
@@ -16,10 +22,7 @@ def consensus_threshold(sampling_freq=100):
     try:
         for i, p in enumerate(bit_flip_prob):
             data = np.load(f"data/object_phase/part_{i}.npy")
-            print(data.shape)
             y[i] = data.mean(axis=-1)
-            if i == 0:
-                y[i] = success_rate_ma(data[0]).mean(axis=-1)
             del data
 
     except FileNotFoundError:
@@ -50,8 +53,8 @@ def consensus_threshold(sampling_freq=100):
             ax.invert_yaxis()
             ax.invert_xaxis()
 
-        ax.set_ylabel("Szansa Pomylenia Obiektu")
-        ax.set_xlabel("Indeks Próby")
+        ax.set_ylabel("Szansa Błędu Detekcji (p)")
+        ax.set_xlabel("Krok czasowy")
         ax.set_zlabel("Wartość")
         ax.set_zlim(metrics_limits[stat])
 
@@ -66,14 +69,79 @@ def consensus_threshold(sampling_freq=100):
             vmin=metrics_limits[stat][0],
             vmax=metrics_limits[stat][1],
         )
-        axhm.set_xlabel("Szansa Pomylenia Obiektu")
-        axhm.set_ylabel("Indeks Próby")
+        axhm.set_xlabel("Szansa Błędu Detekcji (p)")
+        axhm.set_ylabel("Krok czasowy")
         fig.colorbar(im, ax=axhm, shrink=0.8)
 
-        fig.suptitle(stat_names[stat])
+        fig.suptitle(stat_names[stat]+" - Błąd Detekcji (p)", fontsize=16)
         plt.tight_layout()
         plt.savefig(f"plots/object_game/surface_stat_{stat}.png", dpi=200)
+        plt.savefig(f"plots/object_game/surface_stat_{stat}.pdf")
         plt.close(fig)
+
+    step_idx = 40000 // sampling_freq
+    entropy_at_step_mean_games = y[:, 3, step_idx]
+    derivative = np.gradient(entropy_at_step_mean_games, bit_flip_prob)
+    max_derivative_idx = np.nanargmax(derivative[derivative >= 0])
+    
+    print(f"\nEntropy derivative analysis at step 40k:")
+    print(f"  Max |d(entropy)/dp| at p={bit_flip_prob[max_derivative_idx]:.3f}")
+    print(f"  Derivative value: {derivative[max_derivative_idx]:.4f}")
+    print(f"  Entropy at this p: {entropy_at_step_mean_games[max_derivative_idx]:.4f}")
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    
+    ax1.plot(bit_flip_prob, entropy_at_step_mean_games, 'b-', linewidth=2)
+    ax1.axvline(bit_flip_prob[max_derivative_idx], color='r', linestyle='--', alpha=0.7)
+    ax1.set_xlabel("Szansa Błędu Detekcji (p)")
+    ax1.set_ylabel("Entropia")
+    ax1.set_title("Entropia przy 40 000 kroku czasowym")
+    ax1.grid(True, alpha=0.3)
+    
+    ax2.plot(bit_flip_prob, derivative, 'g-', linewidth=2)
+    ax2.axvline(bit_flip_prob[max_derivative_idx], color='r', linestyle='--', alpha=0.7, label=f'max przy p={bit_flip_prob[max_derivative_idx]:.3f}')
+    ax2.axhline(0, color='k', linestyle='-', alpha=0.3)
+    ax2.set_xlabel("Szansa Błędu Detekcji (p)")
+    ax2.set_ylabel(r"$\partial \mu^{\text{RE}}_t / \partial p$")
+    ax2.set_title("Pochodna entropii przy 40 000 kroku czasowym")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig("plots/object_game/entropy_derivative_40k.png", dpi=200)
+    plt.savefig("plots/object_game/entropy_derivative_40k.pdf")
+    plt.close(fig)
+
+    dict_size_at_step_mean_games = y[:, 2, step_idx]
+    dict_derivative = np.gradient(dict_size_at_step_mean_games, bit_flip_prob)
+    max_dict_derivative_idx = np.nanargmax(dict_derivative[dict_derivative >= 0])
+    
+    
+    print(f"\nDict size analysis at step 40k:")
+    print(f"  Max d(dict)/dp at p={bit_flip_prob[max_dict_derivative_idx]:.3f}")
+    print(f"  Derivative value: {dict_derivative[max_dict_derivative_idx]:.4f}")
+    print(f"  Dict size at this p: {dict_size_at_step_mean_games[max_dict_derivative_idx]:.4f}")
+    
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    
+    ax1.plot(bit_flip_prob, dict_size_at_step_mean_games, 'b-', linewidth=2)
+    ax1.set_xlabel("Szansa Błędu Detekcji (p)")
+    ax1.set_ylabel("Rozmiar słownika")
+    ax1.set_title("Rozmiar słownika przy 40 000 kroku czasowym")
+    ax1.grid(True, alpha=0.3)
+    
+    ax2.plot(bit_flip_prob, dict_derivative, 'g-', linewidth=2)
+    ax2.axhline(0, color='k', linestyle='-', alpha=0.3)
+    ax2.set_xlabel("Szansa Błędu Detekcji (p)")
+    ax2.set_ylabel(r"$\partial \mu^{\mathrm{DS}}_t / \partial p$")
+    ax2.set_title("Pochodna rozmiaru słownika przy 40 000 kroku czasowym")
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig("plots/object_game/dict_size_derivative_40k.png", dpi=200)
+    plt.savefig("plots/object_game/dict_size_derivative_40k.pdf")
+    plt.close(fig)
 
     print_latex_table_multiple(bit_flip_prob, sampling_freq)
 
@@ -111,8 +179,7 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
         try:
             data = np.load(f"data/object_phase/part_{i}.npy")
             
-            mean_success_ma = success_rate_ma(data[0], window_size=10)
-            t_success_all = (mean_success_ma.T > 0.90).argmax(axis=1)
+            t_success_all = (data[0].T > 0.90).argmax(axis=1)
             mask_success = t_success_all != 0
             t_success = t_success_all[mask_success] * sampling_freq
             
@@ -160,12 +227,12 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
             stats['t_stable_entropy'].append((np.nanmean(t_entropy), np.nanstd(t_entropy)))
             stats['t_stable_dict'].append((np.nanmean(t_stable_dict), np.nanstd(t_stable_dict)))
             
+            
             del data
         except FileNotFoundError:
             for key in stats:
                 stats[key].append((np.nan, np.nan))
-    
-    # Print LaTeX table
+        
     print("\n" + "%"*60)
     print("% LaTeX table - Object confusion probability analysis")
     print("\\begin{table}[htbp]")
@@ -173,7 +240,6 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
     print("\\caption{Statystyki symulacji vs szansa pomylenia obiektu}")
     print("\\label{tab:object_confusion_stats}")
     
-    # Header
     n_cols = len(param_indices)
     col_spec = "l" + "c" * n_cols
     print(f"\\begin{{tabular}}{{{col_spec}}}")
@@ -185,12 +251,12 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
     # Rows
     metrics = [
         ('Maks. rozmiar słownika', 'max_dict', False),
-        ('Czas do maks. słownika', 'time_max_dict', True),
-        ('Czas do 90\\% sukcesu', 't_success', True),
-        ('Czas do 90\\% konsensusu', 't_consensus', True),
+        ('Czas do maks. słownika ($\\times 10^3$)', 'time_max_dict', True),
+        ('Czas do 90\\% sukcesu ($\\times 10^3$)', 't_success', True),
+        ('Czas do 90\\% konsensusu ($\\times 10^3$)', 't_consensus', True),
         ('Stabilna entropia', 'stable_entropy', False),
-        ('Czas do stab. entropii', 't_stable_entropy', True),
-        ('Czas do stab. słownika', 't_stable_dict', True),
+        ('Czas do stab. entropii ($\\times 10^3$)', 't_stable_entropy', True),
+        ('Czas do stab. słownika ($\\times 10^3$)', 't_stable_dict', True),
     ]
     
     for label, key, is_time in metrics:
@@ -204,7 +270,7 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
     print("\\end{tabular}")
     print("\\end{table}")
     print("%"*60 + "\n")
-
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

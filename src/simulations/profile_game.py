@@ -1,18 +1,57 @@
 import sys
 import os
+import argparse
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from games.base_game import BaseGame
 from parameters import DefaultParams
-from utils import get_default_device
 
 
 def profile_game():
-    device = get_default_device()
+    n_games = 1000
+    n_steps = 10000
     
+    print(f"Profiling {n_games} games, {n_steps} steps each\n")
+    
+    # CUDA timing
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        game = BaseGame(
+            game_instances=n_games,
+            agents=DefaultParams.POPULATION_SIZE.value,
+            objects=DefaultParams.OBJECTS_SIZE.value,
+            memory=DefaultParams.MEMORY_SIZE.value,
+            device=device,
+            vocab_size=DefaultParams.VOCAB_SIZE.value,
+            context_size=DefaultParams.CONTEXT_SIZE.value,
+        )
+        
+        # Warmup
+        for _ in range(10):
+            game.step(0)
+        torch.cuda.synchronize()
+        
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        
+        start_event.record()
+        for i in range(n_steps):
+            game.step(i)
+        end_event.record()
+        torch.cuda.synchronize()
+        
+        cuda_time_ms = start_event.elapsed_time(end_event)
+        print(f"CUDA: {cuda_time_ms/1000:.2f} s ({cuda_time_ms/n_steps:.3f} ms/step)")
+        
+        del game
+        torch.cuda.empty_cache()
+    
+    # CPU timing
+    device = torch.device("cpu")
     game = BaseGame(
-        game_instances=1000,
+        game_instances=n_games,
         agents=DefaultParams.POPULATION_SIZE.value,
         objects=DefaultParams.OBJECTS_SIZE.value,
         memory=DefaultParams.MEMORY_SIZE.value,
@@ -21,46 +60,21 @@ def profile_game():
         context_size=DefaultParams.CONTEXT_SIZE.value,
     )
     
-    # Warmup - let CUDA initialize and JIT compile
-    print("Warming up...")
+    # Warmup
     for _ in range(10):
         game.step(0)
     
-    torch.cuda.synchronize()
+    start = time.perf_counter()
+    for i in range(n_steps):
+        game.step(i)
+    end = time.perf_counter()
     
-    # Profile 100 steps
-    print("Profiling...")
-    with torch.profiler.profile(
-        activities=[
-            torch.profiler.ProfilerActivity.CPU,
-            torch.profiler.ProfilerActivity.CUDA,
-        ],
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
-    ) as prof:
-        for i in range(100):
-            game.step(i)
-        torch.cuda.synchronize()
+    cpu_time_ms = (end - start) * 1000
+    print(f"CPU:  {cpu_time_ms/1000:.2f} s ({cpu_time_ms/n_steps:.3f} ms/step)")
     
-    # Print top operations by CUDA time
-    print("\n" + "="*80)
-    print("TOP 20 OPERATIONS BY CUDA TIME")
-    print("="*80)
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
-    
-    # Print top operations by CPU time
-    print("\n" + "="*80)
-    print("TOP 20 OPERATIONS BY CPU TIME")
-    print("="*80)
-    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
-    
-    # Print memory usage
-    print("\n" + "="*80)
-    print("TOP 10 OPERATIONS BY MEMORY")
-    print("="*80)
-    print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
-    
+    if torch.cuda.is_available():
+        print(f"\nSpeedup: {cpu_time_ms/cuda_time_ms:.1f}x")
+
 
 if __name__ == "__main__":
     profile_game()

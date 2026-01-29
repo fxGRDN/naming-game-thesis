@@ -9,7 +9,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from simulations.parameters import metrics_limits
-from utils import success_rate_ma
+
+
+plt.figure(figsize=(6.5, 4))
+plt.rcParams.update({
+    "text.usetex": False,  
+    "font.family": "serif",
+})
+
 
 def consensus_threshold(sampling_freq=100):
     bit_flip_prob = np.linspace(0, 1, 100)
@@ -44,15 +51,12 @@ def consensus_threshold(sampling_freq=100):
 
         ax.invert_xaxis()
 
-
-
-
         if stat > 1:  # Dictionary Size
             ax.invert_yaxis()
             ax.invert_xaxis()
 
-        ax.set_ylabel("Szansa Pomylenia Słowa")
-        ax.set_xlabel("Indeks Próby")
+        ax.set_ylabel("Szansa Błędu Transmisji (q)")
+        ax.set_xlabel("Krok czasowy")
         ax.set_zlabel("Wartość")
         ax.set_zlim(metrics_limits[stat])
 
@@ -67,8 +71,8 @@ def consensus_threshold(sampling_freq=100):
             vmin=metrics_limits[stat][0],
             vmax=metrics_limits[stat][1],
         )
-        axhm.set_xlabel("Szansa Pomylenia Słowa")
-        axhm.set_ylabel("Indeks Próby")
+        axhm.set_xlabel("Szansa Błędu Transmisji (q)")
+        axhm.set_ylabel("Krok czasowy")
         fig.colorbar(im, ax=axhm, shrink=0.8)
 
 
@@ -91,12 +95,13 @@ def consensus_threshold(sampling_freq=100):
             axhm.clabel(cs, inline=True, fontsize=8, fmt=lambda x: f'{x*100:.0f}%')
                     
 
-        fig.suptitle(stat_names[stat])
+        fig.suptitle(stat_names[stat]+" - Błąd Transmisji (q)", fontsize=16)
         plt.tight_layout()
         plt.savefig(f"plots/word_game/surface_stat_{stat}.png", dpi=200)
+        plt.savefig(f"plots/word_game/surface_stat_{stat}.pdf")
         plt.close(fig)
 
-        print_latex_table_multiple(bit_flip_prob, sampling_freq)
+    print_latex_table_multiple(bit_flip_prob, sampling_freq)
 
 def print_latex_table_multiple(param_values, sampling_freq=100):
     """Print LaTeX table with statistics for multiple parameter values."""
@@ -126,18 +131,17 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
         't_stable_entropy': [],
         't_stable_dict': []
     }
-    
+        
     for i in param_indices:
         try:
             data = np.load(f"data/word_phase/part_{i}.npy")
             
-            success_ma = success_rate_ma(data[0], window_size=100)
-            t_success_all = (success_ma.T > 0.90).argmax(axis=1)
-            mask_success = (success_ma.T > 0.90).any(axis=1)
+            t_success_all = (data[0].T > 0.90).argmax(axis=1)
+            mask_success = t_success_all != 0
             t_success = t_success_all[mask_success] * sampling_freq
             
             t_consensus_all = (data[1].T > 0.90).argmax(axis=1)
-            mask_consensus = (data[1].T > 0.90).any(axis=1)
+            mask_consensus = t_consensus_all != 0
             t_consensus = t_consensus_all[mask_consensus] * sampling_freq
             
             max_dict = data[2].max(axis=0)
@@ -182,9 +186,8 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
             
             del data
         except FileNotFoundError:
-            for key in stats:
-                stats[key].append((np.nan, np.nan))
-    
+            pass
+        
     print("\n" + "%"*60)
     print("% LaTeX table - Object confusion probability analysis")
     print("\\begin{table}[htbp]")
@@ -221,10 +224,7 @@ def print_latex_table_multiple(param_values, sampling_freq=100):
     print("\\end{tabular}")
     print("\\end{table}")
     print("%"*60 + "\n")
-
-
-
-
+    
 
 
 if __name__ == "__main__":

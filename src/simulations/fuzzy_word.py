@@ -32,7 +32,7 @@ def word_baseline(args):
             )
         game.play(game_steps, disable_tqdm=True, sampling_freq=args.sampling_freq)
 
-    np.save(f"data/word_phase/part_{part_idx}.npy", game.stats.cpu().numpy())
+        np.save(f"data/word_phase/part_{part_idx}.npy", game.stats.cpu().numpy())
 
 
 if __name__ == "__main__":

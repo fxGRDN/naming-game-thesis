@@ -28,7 +28,7 @@ class FuzzyObjectGame(BaseGame):
             raise ValueError("confusion_prob must be in [0, 1].")
         self.confusion_prob = torch.as_tensor(confusion_prob, device=device, dtype=torch.float32)
 
-        # obsturct perception channel
+        # obstruct perception channel
 
     def perception_channel(self, flat_counts: torch.Tensor) -> torch.Tensor:
         """Remove best match with probability obstruct_prob. Optimized to avoid CPU syncs."""
@@ -40,22 +40,21 @@ class FuzzyObjectGame(BaseGame):
         # reshape to (G, objects, memory)
         reshaped = flat_counts.view(G, -1, self.memory)
         
-        # Find best object per instance (max count across all memory slots)
-        # Get the flat index of the maximum, then extract object index
+        # find best object per instance (max count across all memory slots)
         best_flat_idx = reshaped.view(G, -1).argmax(dim=-1)  # (G,)
         best_object_idx = best_flat_idx // self.memory  # (G,)
         
-        # Create mask to zero out best object's memory slots
+        # create mask to zero out best object's memory slots
         # one_hot: (G, objects)
         obj_mask = torch.nn.functional.one_hot(best_object_idx, num_classes=reshaped.size(1)).bool()  # (G, objects)
         
-        # Expand to cover memory: (G, objects, memory)
+        # expand to cover memory: (G, objects, memory)
         zero_mask = obj_mask.unsqueeze(-1).expand(-1, -1, self.memory)
         
-        # Zero out best object where obstruct_mask is True
+        # zero out best object where obstruct_mask is True
         zeroed = torch.where(zero_mask, torch.zeros_like(reshaped), reshaped)
         
-        # Apply obstruction conditionally using torch.where
+        # apply obstruction conditionally using torch.where
         result = torch.where(
             obstruct_mask.unsqueeze(-1).unsqueeze(-1),  # (G, 1, 1)
             zeroed,

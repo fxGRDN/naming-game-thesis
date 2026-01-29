@@ -8,11 +8,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from utils import success_rate_ma, mean_q
+from utils import mean_q
 import scipy.stats
 
-sns.set_theme(style="whitegrid")
-
+plt.rcParams.update({
+    "text.usetex": False, 
+    "font.family": "serif",
+})
 
 def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
 
@@ -31,9 +33,9 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
     plt.subplot(1, 2, 1)
     sns.lineplot(x=x, y=mean)
     plt.fill_between(x, lo, hi, alpha=0.3, label=" 99% przedział tolerancji")
-    plt.title(f'Średni sukces w czasie - {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
-    plt.ylabel('Średni Sukces')
+    plt.title(f'Sukces interakcji - {title_prefix}')
+    plt.xlabel('Krok czasowy')
+    plt.ylabel('Średni Sukces interakcji')
     plt.legend()
     plt.subplot(1, 2, 2)
 
@@ -41,14 +43,14 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
     mask = time_dist != 0
     time_dist = time_dist[mask]*sampling_freq
 
-    print(time_dist.mean(), time_dist.std())
 
     sns.histplot(time_dist, kde=False)
     plt.title(f'Czas do osiągnięcia 90% sukcesu - {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Liczba Symulacji')
 
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_success_rate.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_success_rate.pdf')
     plt.close()
 
     plt.figure(figsize=(12, 6))
@@ -61,8 +63,8 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
 
     sns.lineplot(x=x, y=mean)
     plt.fill_between(x, lo, hi, alpha=0.3, label=" 99% przedział tolerancji")
-    plt.title(f'Średni konsensus w czasie - {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
+    plt.title(f'Konsensus - {title_prefix}')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Średni Konsensus')
     plt.legend()
     plt.subplot(1, 2, 2)
@@ -73,9 +75,10 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
 
     sns.histplot(time_dist, kde=False)
     plt.title(f'Czas do osiągnięcia 90% konsensusu - {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Liczba Symulacji')
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_consensus.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_consensus.pdf')
     plt.close()
 
     plt.figure(figsize=(10, 6))
@@ -89,11 +92,12 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
 
     sns.lineplot(x=x, y=mean)
     plt.fill_between(x, lo, hi, alpha=0.3, label=" 99% przedział tolerancji")
-    plt.title('Średni rozmiar słownika w czasie - Parametry Bazowe')
-    plt.xlabel('Kroki Symulacji')
+    plt.title(f'Rozmiar słownika - {title_prefix}')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Średni Rozmiar Słownika')
     plt.legend()
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_dict_size.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_dict_size.pdf')
     plt.close()
 
 
@@ -104,9 +108,10 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
     plt.hlines(0, xmin=0, xmax=len(x)*sampling_freq-1, colors='r', linestyles='dashed', label='Brak entropii')
     plt.title(f'Entropia referencyjna - {title_prefix}')
     plt.legend()
-    plt.xlabel('Kroki Symulacji')
-    plt.ylabel('Średni Wskaznik Homonimów')
+    plt.xlabel('Krok czasowy')
+    plt.ylabel('Entropia Referencyjna')
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_entropy.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_entropy.pdf')
     plt.close()
 
     print_latex_table(data_1_0, title_prefix, label_suffix, sampling_freq)
@@ -117,32 +122,13 @@ def baseline(path, title_prefix, label_suffix, folder, sampling_freq=100):
 def print_latex_table(data, title_prefix, label_suffix, sampling_freq=100):
     """Print LaTeX table with simulation statistics."""
     
-    mean_success_ma = success_rate_ma(data[0])
-    t_success_all = (mean_success_ma.T > 0.90).argmax(axis=1)
+    t_success_all = (data[0].T > 0.90).argmax(axis=1)
     mask_success = t_success_all != 0
     t_success = t_success_all[mask_success] * sampling_freq
     
     t_consensus_all = (data[1].T > 0.90).argmax(axis=1)
     mask_consensus = t_consensus_all != 0
     t_consensus = t_consensus_all[mask_consensus] * sampling_freq
-    
-    if len(t_consensus) > 10:
-        # Fit parameters
-        mean_cons, std_cons = t_consensus.mean(), t_consensus.std()
-        loc_laplace, scale_laplace = scipy.stats.laplace.fit(t_consensus)
-        
-        ks_norm, p_norm = scipy.stats.kstest(t_consensus, 'norm', args=(mean_cons, std_cons))
-        ks_laplace, p_laplace = scipy.stats.kstest(t_consensus, 'laplace', args=(loc_laplace, scale_laplace))
-        
-        print(f"\nConsensus time distribution test:")
-        print(f"  Gaussian:  KS={ks_norm:.4f}, p={p_norm:.4e}")
-        print(f"  Laplace:   KS={ks_laplace:.4f}, p={p_laplace:.4e}")
-        print(f"  Better fit: {'Laplace' if p_laplace > p_norm else 'Gaussian'}")
-    
-    common_mask = mask_success & mask_consensus
-    if common_mask.sum() > 1:
-        corr = np.corrcoef(t_success_all[common_mask], t_consensus_all[common_mask])[0, 1]
-        print(f"Correlation (success vs consensus time): {corr:.4f}")
     
     max_dict = data[2].max(axis=0)
     time_to_max_dict = data[2].T.argmax(axis=1)
@@ -241,8 +227,7 @@ def baseline_multiple(path, title_prefix, label_suffix, param_values, folder, lo
     print("Analyzing baseline multiple:", label_suffix)
 
     # mean success rate
-    ma_stat_0 = success_rate_ma(data[:, 0])
-    for stat, param in zip(ma_stat_0, param_labels):
+    for stat, param in zip(data[:, 0], param_labels):
         plt.subplot(1, 2, 1)
         sns.lineplot(x=np.arange(stat.shape[-2])*sampling_freq, y=stat.mean(axis=-1), label = param)
         plt.subplot(1, 2, 2)
@@ -254,16 +239,17 @@ def baseline_multiple(path, title_prefix, label_suffix, param_values, folder, lo
             sns.boxplot(data=time_dist_df, y='time_to_90_success', x=label_suffix)
     
     plt.subplot(1, 2, 1)
-    plt.title(f'Średni sukces w czasie vs {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
-    plt.ylabel('Średni Sukces')
+    plt.title(f'Sukces interakcji w czasie - {title_prefix}')
+    plt.xlabel('Krok czasowy')
+    plt.ylabel('Średni Sukces interakcji')
 
     plt.subplot(1, 2, 2)
-    plt.title(f'Czas do osiągnięcia 90% sukcesu vs {title_prefix}')
-    plt.ylabel('Kroki Symulacji')
+    plt.title(f'Czas do osiągnięcia 90% sukcesu - {title_prefix}')
+    plt.ylabel('Krok czasowy')
     plt.xlabel(title_prefix)
 
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_success_rate.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_success_rate.pdf')
     plt.close()
 
     ####################################################
@@ -286,16 +272,17 @@ def baseline_multiple(path, title_prefix, label_suffix, param_values, folder, lo
             sns.boxplot(data=time_dist_df, y='time_to_90_success', x=label_suffix)
     
     plt.subplot(1, 2, 1)
-    plt.title(f'Średni konsensus vs {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
+    plt.title(f'Konsensus - {title_prefix}')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Średni konsensus')
 
     plt.subplot(1, 2, 2)
-    plt.title(f'Czas do osiągnięcia 90% konsensusu vs {title_prefix}')
-    plt.ylabel('Kroki Symulacji')
+    plt.title(f'Czas do osiągnięcia 90% konsensusu - {title_prefix}')
+    plt.ylabel('Krok czasowy')
     plt.xlabel(title_prefix)
 
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_consensus.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_consensus.pdf')
     plt.close()
 
     ####################################################
@@ -317,17 +304,18 @@ def baseline_multiple(path, title_prefix, label_suffix, param_values, folder, lo
 
 
     plt.subplot(1, 2, 1)
-    plt.title(f'Średni rozmiar słownika w czasie vs {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
+    plt.title(f'Rozmiar słownika w czasie - {title_prefix}')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Średni Rozmiar Słownika')
 
     plt.subplot(1, 2, 2)
-    plt.title(f'Czas do osiągnięcia maksymalnego rozmiaru słownika vs {title_prefix}')
-    plt.ylabel('Kroki Symulacji')
+    plt.title(f'Czas do osiągnięcia maksymalnego rozmiaru słownika - {title_prefix}')
+    plt.ylabel('Krok czasowy')
     plt.xlabel(title_prefix)
 
 
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_dict_size.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_dict_size.pdf')
     plt.close()
 
     ####################################################
@@ -339,12 +327,13 @@ def baseline_multiple(path, title_prefix, label_suffix, param_values, folder, lo
         y = data[:, 2].transpose(0, 2, 1).argmax(axis=2).mean(axis=1) * sampling_freq
         plt.loglog(param_values, y, )
         plt.loglog(param_values, np.array(param_values)**(1.5), '--', label='Oczekiwana złożoność $O(n^{1.5})$')
-        plt.title(f'Średni czas do osiągnięcia maksymalnego rozmiaru słownika vs {title_prefix}')
+        plt.title(f'Średni czas do osiągnięcia maksymalnego rozmiaru słownika - {title_prefix}')
         plt.xlabel(title_prefix)
-        plt.ylabel('Kroki Symulacji')
+        plt.ylabel('Krok czasowy')
         plt.legend()
 
         plt.savefig(f'plots/{folder}/{label_suffix}_analysis_dict_size_mean_time.png')
+        plt.savefig(f'plots/{folder}/{label_suffix}_analysis_dict_size_mean_time.pdf')
         plt.close()
 
     for stat, param in zip(data[: ,3], param_labels):
@@ -352,16 +341,14 @@ def baseline_multiple(path, title_prefix, label_suffix, param_values, folder, lo
 
     plt.legend()
 
-    plt.title(f'Średnia entropia referencyjna w czasie vs {title_prefix}')
-    plt.xlabel('Kroki Symulacji')
+    plt.title(f'Entropia referencyjna w czasie - {title_prefix}')
+    plt.xlabel('Krok czasowy')
     plt.ylabel('Średnia Entropia Referencyjna')
     plt.savefig(f'plots/{folder}/{label_suffix}_analysis_entropy.png')
+    plt.savefig(f'plots/{folder}/{label_suffix}_analysis_entropy.pdf')
     plt.close()
 
     del data
-
-
-# )
 
 
 if __name__ == "__main__":
@@ -378,7 +365,7 @@ if __name__ == "__main__":
     if args.b:
         baseline(
             "data/baseline/baseline.npy", 
-            "Parametery bazowe", 
+            "parametery bazowe", 
             "baseline", 
             "classic/baseline",
             args.sampling_freq
@@ -386,7 +373,7 @@ if __name__ == "__main__":
     if args.p:
         baseline_multiple(
             "data/baseline/population_size.npy",
-            "Rozmiar populacji",
+            "rozmiar populacji",
             "population_size",
             [8, 16, 32, 64, 128, 256],
             "classic/population_size",
@@ -397,7 +384,7 @@ if __name__ == "__main__":
     if args.o:
         baseline_multiple(
             "data/baseline/object_size.npy",
-            "Liczba obiektów",
+            "liczba obiektów",
             "object_size",
             [8, 16, 32, 64, 128, 256],
             "classic/object_size",
@@ -407,7 +394,7 @@ if __name__ == "__main__":
     if args.v:
         baseline_multiple(
             "data/baseline/vocab_size.npy",
-            "Rozmiar słownika",
+            "rozmiar słownika",
             "vocab_size",
             [2**4, 2**6, 2**8, 2**10, 2**12],
             "classic/vocab_size",
@@ -417,18 +404,9 @@ if __name__ == "__main__":
     if args.c:
         baseline_multiple(
             "data/baseline/context_size.npy",
-            "Rozmiar kontekstu",
+            "rozmiar kontekstu",
             "context_size",
             [(1, 2), (2, 4), (4, 6), (6, 8)],
             "classic/context_size",
-            sampling_freq=args.sampling_freq
-            )
-    if args.m:
-        baseline_multiple(
-            "data/baseline/memory_size.npy",
-            "Rozmiar pamięci",
-            "memory_size",
-            [3, 5, 7, 8, 12, 16],
-            "classic/memory_size",
             sampling_freq=args.sampling_freq
             )

@@ -49,29 +49,43 @@ class BaseGame:
                 f"Max context size {self.context_size[1]} cannot be larger than number of objects {self.objects}"
             )
 
+
+
+        # PRE-ALLOCATION
+
         self.instance_ids = torch.arange(game_instances, device=self.device)
 
-        # Pre-allocated tensors for generate_context
+        # pre-allocated tensors for generate_context
         self._context_probs = torch.ones((game_instances, objects), device=self.device, dtype=torch.float32)
         self._context_idxs = torch.arange(self.context_size[1], device=self.device).unsqueeze(0)  # (1, max_k)
         self._context_buffer = torch.zeros((game_instances, objects), device=self.device, dtype=torch.float32)
         
-        # Pre-allocated tensors for find_best_object
+        # pre-allocated tensors for find_best_object
         self._obj_offsets = torch.arange(objects, device=self.device).unsqueeze(0)  # (1, M)
         
-        # Pre-allocated tensors for coherence
+        # pre-allocated tensors for coherence
         self._tensor_agents = torch.tensor(self.agents, device=self.device)
         
-        # Pre-allocated tensors for combined metrics (coherence + entropy)
+        # pre-allocated tensors for combined metrics (coherence + entropy)
         self._word_counts = torch.zeros((game_instances, objects, vocab_size), device=self.device, dtype=torch.float32)
         self._ones_for_scatter = torch.ones((game_instances, objects, agents), device=self.device, dtype=torch.float32)
         self._coherence = torch.zeros(game_instances, device=self.device, dtype=torch.float32)
         self._entropy = torch.zeros(game_instances, device=self.device, dtype=torch.float32)
         
-        # Pre-allocated tensor for ones (used in multiple places)
+        # pre-allocated tensor for ones (used in multiple places)
         self._ones_G = torch.ones(game_instances, dtype=torch.uint8, device=self.device)
 
     def choose_agents(self):
+        """
+        Choose speakers and hearers for all game instances.
+        Top K ensures uniqueness of agent pairs.
+                
+        :param self: The object itself
+
+        :return: speakers and hearers tensors of shape (game_instances,)
+        """
+
+
         scores = torch.rand((self.game_instances, self.agents), device=self.device)
         pairs = torch.topk(scores, 2, dim=1).indices  # Shape: (num_instances, 2)
         speakers = pairs[:, 0]  # (num_instances,)
@@ -80,18 +94,30 @@ class BaseGame:
         return speakers, hearers
 
     def generate_context(self) -> torch.Tensor:
+        """
+        Generate context matrix for all game instances using Gumbel-topk trick.
+
+
+        :param self: The object itself
+        :return: Context matrix tensor of shape (game_instances, objects)
+        :rtype: Tensor
+        """
+
         n = self.game_instances
         o = self.objects
         max_k = self.context_size[1]
 
-        # how many objects in context per speaker
+        # how many objects in context per pair
         ks = torch.randint(self.context_size[0], max_k + 1, (n,), device=self.device)
 
-        # Gumbel-topk trick for sampling without replacement (faster than multinomial)
+        # generate gumbel noise
         gumbel_noise = -torch.log(-torch.log(torch.rand((n, o), device=self.device) + 1e-20) + 1e-20)
+
+        # create top-k samples
         samples = gumbel_noise.topk(max_k, dim=1).indices  # (n, max_k)
 
-        # Create mask for valid samples using pre-allocated idxs
+
+        
         keep_mask = (self._context_idxs < ks.unsqueeze(1)).float()  # (n, max_k)
 
         # Build context using scatter_add - zero out and reuse buffer
@@ -111,9 +137,7 @@ class BaseGame:
         Given a (n_speakers, objects) context matrix, sample one object per
         speaker according to the context probabilities using Gumbel-max trick.
         """
-        # Gumbel-max trick for weighted sampling (faster than multinomial)
         gumbel_noise = -torch.log(-torch.log(torch.rand_like(context) + 1e-20) + 1e-20)
-        # Add log-probabilities to Gumbel noise, mask out zero-prob with -inf
         log_probs = torch.log(context + 1e-20)
         chosen = (log_probs + gumbel_noise).argmax(dim=-1)
 
@@ -141,7 +165,6 @@ class BaseGame:
 
         # pick memory slots for selected (game, speaker, object)
         selected_slots = state_flat[flat_idx]  # (G, memory, 2)
-        
 
         # word counts
         counts = selected_slots[:, :, 1]  # (G, memory)
@@ -193,10 +216,7 @@ class BaseGame:
 
     
     def perception_channel(self, flat_counts: torch.Tensor) -> torch.Tensor:
-        """
-        Identity function in base game. Override in subclass to implement
-        perception obstruction (e.g., remove best match with probability p).
-        """
+        # identity channel
         return flat_counts
 
      
@@ -304,11 +324,19 @@ class BaseGame:
         state_flat[reinforce_flat_idx] = reinforce_final
 
     def find_best_object(
-        self, hearers, words, contexts, apply_obstruction: bool = False
+        self, hearers, words, contexts
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Given hearers, words and contexts, find best object in context for each hearer.
-        Uses Gumbel-max trick instead of multinomial for tie-breaking.
+        For each hearer, find the best matching object in context for the given word.
+
+        :param hearers: Tensor of shape (game_instances,) with hearer agent indices
+        :param words: Tensor of shape (game_instances,) with words to find
+        :param contexts: Tensor of shape (game_instances, objects) with context probabilities
+
+        :return: Tuple of (best_object_idx, best_memory_idx, found_per_hearer)
+            - best_object_idx: Tensor of shape (game_instances,) with best object indices
+            - best_memory_idx: Tensor of shape (game_instances,) with best memory slot indices
+            - found_per_hearer: Tensor of shape (game_instances,) indicating if a match was found
         """
         # dims
         G, N, M, mem = self.game_instances, self.agents, self.objects, self.memory
@@ -358,10 +386,12 @@ class BaseGame:
 
 
     def prune_memory(self):
+        """Zero out memory slots with count zero."""
         non_zero = self.state[:, :, :, :, 1] != 0
         self.state.mul_(non_zero.unsqueeze(-1))
 
     def success_rate(self) -> torch.Tensor:
+        """Return current success rate tensor."""
         return self.successful_communications
 
     def _compute_top_words(self) -> None:
@@ -419,7 +449,8 @@ class BaseGame:
         """Return cached entropy value."""
         return self._entropy
 
-    def vocab_usage(self):
+    def vocab_usage(self) -> torch.Tensor:
+        """Return average vocabulary usage per game instance."""
 
         usage = (self.state[:, :, :, :, 0] > 0).float().sum(-1) # all used words per object
 
@@ -427,6 +458,13 @@ class BaseGame:
 
 
     def step(self, i: int) -> None:
+        """
+        Play one round of the game.
+                
+        :param self: The object itself
+        :param i: Current round index
+        :type i: int
+        """
         speakers, hearers = self.choose_agents()
 
         contexts = self.generate_context()
@@ -445,22 +483,26 @@ class BaseGame:
             tqdm_position: int = 1,
             ma_window: int = 100,
              ) -> None:
+        """Play multiple rounds of the game, optionally sampling statistics."""
 
-
+        # compile step function for speed
         self.step = torch.compile(self.step, mode="default")
 
+        # pre-allocate stats tensor if sampling
         if sampling_freq > 0:
             self.stats = torch.zeros((4, rounds // sampling_freq, self.game_instances), dtype=torch.float32, device=self.device)
             success_buffer = torch.zeros((ma_window, self.game_instances), dtype=torch.float32, device=self.device)
             success_sum = torch.zeros(self.game_instances, dtype=torch.float32, device=self.device)
 
 
+        # play rounds
         progress = tqdm.tqdm(range(rounds), desc=tqdm_desc, position=tqdm_position, disable=disable_tqdm)
+        # skip gradient calculations
         with torch.inference_mode():
             for i in progress:
                 self.step(i)
                 
-                # Update moving average for success rate
+                # queue success for moving average
                 if sampling_freq > 0:
                     buf_idx = i % ma_window
                     old_val = success_buffer[buf_idx].clone()
@@ -468,6 +510,7 @@ class BaseGame:
                     success_buffer[buf_idx] = new_val
                     success_sum = success_sum - old_val + new_val
 
+                # compute stats 
                 if sampling_freq > 0 and i % sampling_freq == 0:
                     self._compute_top_words()
                     self._compute_metrics()
