@@ -11,7 +11,7 @@ plots
 logs
 *.log
 *.txt
-
+*.pid
 # Distribution / packaging
 .Python
 build/
